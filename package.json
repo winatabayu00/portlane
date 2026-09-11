@@ -1,0 +1,25 @@
+{
+  "private": true,
+  "name": "portlane",
+  "version": "0.0.0",
+  "description": "Portlane — multi-tenant communication gateway (modular monolith). M00 foundation.",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:api": "yarn workspace @portlane/api dev",
+    "dev:web": "yarn workspace @portlane/web dev",
+    "build": "yarn workspaces run build",
+    "lint": "eslint .",
+    "typecheck": "yarn workspaces run typecheck",
+    "test": "yarn workspaces run test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "eslint": "^9.0.0",
+    "typescript-eslint": "^8.0.0"
+  }
+}

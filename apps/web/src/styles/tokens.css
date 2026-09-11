@@ -1,0 +1,53 @@
+/* Portlane design tokens (M00 shell). Source of truth: DESIGN.md + docs/frontend/UI-UX.md.
+   Calm, technical, developer-oriented. No gradients, no glassmorphism. */
+:root {
+  color-scheme: light dark;
+
+  --pl-bg: light-dark(#f7f8f9, #0e1113);
+  --pl-surface: light-dark(#ffffff, #161a1d);
+  --pl-border: light-dark(#e2e6e9, #262c30);
+  --pl-text: light-dark(#16191c, #e8ecee);
+  --pl-muted: light-dark(#5d6b74, #9aa7af);
+  --pl-accent: #2563eb;
+  --pl-ok: #15803d;
+  --pl-warn: #b45309;
+  --pl-bad: #b91c1c;
+
+  --pl-font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --pl-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+
+  --pl-radius: 8px;
+  --pl-space-1: 4px;
+  --pl-space-2: 8px;
+  --pl-space-3: 16px;
+  --pl-space-4: 24px;
+  --pl-space-5: 32px;
+}
+
+/* Explicit override wins over system. */
+[data-theme="light"] { color-scheme: light; }
+[data-theme="dark"] { color-scheme: dark; }
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--pl-font);
+  background: var(--pl-bg);
+  color: var(--pl-text);
+}
+
+.pl-shell { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
+.pl-side { border-right: 1px solid var(--pl-border); background: var(--pl-surface); padding: var(--pl-space-4); display: flex; flex-direction: column; gap: var(--pl-space-3); }
+.pl-brand { font-family: var(--pl-mono); font-weight: 700; letter-spacing: 0.02em; }
+.pl-nav { display: flex; flex-direction: column; gap: var(--pl-space-1); }
+.pl-nav a { color: var(--pl-muted); text-decoration: none; padding: 6px 10px; border-radius: var(--pl-radius); }
+.pl-nav a.active, .pl-nav a:hover { color: var(--pl-text); background: var(--pl-bg); }
+.pl-main { padding: var(--pl-space-5); max-width: 960px; }
+.pl-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--pl-space-4); }
+.pl-tenant { font-family: var(--pl-mono); font-size: 12px; color: var(--pl-muted); border: 1px solid var(--pl-border); border-radius: var(--pl-radius); padding: 4px 10px; }
+.pl-card { border: 1px solid var(--pl-border); border-radius: var(--pl-radius); background: var(--pl-surface); padding: var(--pl-space-4); }
+.pl-muted { color: var(--pl-muted); }
+.pl-error { color: var(--pl-bad); }
+.pl-row { display: flex; gap: var(--pl-space-2); align-items: center; }
+button, select { font: inherit; border: 1px solid var(--pl-border); border-radius: var(--pl-radius); background: var(--pl-surface); color: var(--pl-text); padding: 6px 12px; }
