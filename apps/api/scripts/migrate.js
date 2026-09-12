@@ -22,9 +22,22 @@ if (existsSync(envFile)) {
   }
 }
 
-const databaseUrl = process.env.DATABASE_URL;
+function resolveDatabaseUrl() {
+  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
+  const h = process.env.DB_HOST; if (!h) return undefined;
+  const u = process.env.DB_USERNAME || process.env.DB_USER || "postgres";
+  const p = process.env.DB_PASSWORD || ""; const port = process.env.DB_PORT || "5432";
+  const db = process.env.DB_DATABASE || process.env.DB_NAME || "portlane";
+  if (db === "ai_engineering_os") { console.error("Migration failed: DB_DATABASE must not be ai_engineering_os — use isolated DB 'portlane'"); process.exit(1); }
+  return p ? `postgresql://${encodeURIComponent(u)}:${encodeURIComponent(p)}@${h}:${port}/${db}` : `postgresql://${encodeURIComponent(u)}@${h}:${port}/${db}`;
+}
+const databaseUrl = resolveDatabaseUrl();
 if (!databaseUrl) {
-  console.error("Migration failed: DATABASE_URL is required (Postgres on minisever via Tailscale).");
+  console.error("Migration failed: DATABASE_URL (or DB_HOST/DB_*) is required (Postgres on minisever via Tailscale, DB portlane isolated).");
+  process.exit(1);
+}
+if (databaseUrl.includes("/ai_engineering_os")) {
+  console.error("Migration failed: DATABASE_URL must not point to ai_engineering_os — use isolated DB 'portlane'");
   process.exit(1);
 }
 

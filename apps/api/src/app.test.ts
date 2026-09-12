@@ -1,4 +1,7 @@
 import { describe, expect, it, afterEach } from "vitest";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { buildApp } from "./app.js";
 import type { AppConfig } from "./config.js";
 import { closeDb } from "./db.js";
@@ -12,7 +15,10 @@ const testConfig: AppConfig = {
   TRUSTED_PROXIES: "",
   DATABASE_URL: "postgres://localhost:5432/portlane_test",
   REDIS_URL: "redis://localhost:6379",
-  APP_ENCRYPTION_KEY: "",
+  APP_ENCRYPTION_KEY: "test-encryption-key-32chars-long!!",
+  WEB_DIST_DIR: "",
+  JWT_SECRET: "test-jwt-secret",
+  JWT_EXPIRES_IN: "7d",
 };
 
 describe("app foundation", () => {
@@ -64,5 +70,29 @@ describe("app foundation", () => {
     expect(res.statusCode).toBe(503);
     expect(res.json().error.code).toBe("INFRA_UNAVAILABLE");
     await app.close();
+  });
+
+  it("serves dashboard + SPA fallback from one port, API paths stay JSON 404", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pl-web-"));
+    await writeFile(join(dir, "index.html"), "<html>spa-shell</html>");
+    try {
+      const app = await buildApp({ ...testConfig, WEB_DIST_DIR: dir });
+      const root = await app.inject({ method: "GET", url: "/", headers: { accept: "text/html" } });
+      expect(root.statusCode).toBe(200);
+      expect(root.body).toContain("spa-shell");
+      const spa = await app.inject({
+        method: "GET",
+        url: "/messages",
+        headers: { accept: "text/html" },
+      });
+      expect(spa.statusCode).toBe(200);
+      expect(spa.body).toContain("spa-shell");
+      const api = await app.inject({ method: "GET", url: "/api/whatever" });
+      expect(api.statusCode).toBe(404);
+      expect(api.json().error.code).toBe("NOT_FOUND");
+      await app.close();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

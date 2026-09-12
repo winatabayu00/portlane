@@ -1,14 +1,15 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
-
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 5173,
+    port: 3002,
     proxy: {
-      // API during dev (minisever-backed backend on :3000).
-      "/health": "http://localhost:3000",
-      "/ready": "http://localhost:3000",
+      "/health": "http://localhost:4002",
+      "/ready": "http://localhost:4002",
+      "/api": "http://localhost:4002",
+      "/hooks": "http://localhost:4002",
+      "/internal": "http://localhost:4002",
     },
   },
 });

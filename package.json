@@ -7,6 +7,7 @@
     "apps/*"
   ],
   "scripts": {
+    "rtk": "node scripts/rtk.mjs",
     "dev:api": "yarn workspace @portlane/api dev",
     "dev:web": "yarn workspace @portlane/web dev",
     "build": "yarn workspaces run build",

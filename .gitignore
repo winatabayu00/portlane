@@ -7,5 +7,6 @@ coverage/
 *.log
 .DS_Store
 *.tsbuildinfo
+.rtk/
 .idea/
 .vscode/

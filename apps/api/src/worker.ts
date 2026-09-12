@@ -1,15 +1,15 @@
 import { loadConfig } from "./config.js";
 import { registerM00Worker } from "./queue.js";
+import { registerDeliveryWorker } from "./modules/delivery/worker.js";
 
-// Standalone worker entry: `yarn dev:worker`. Scales by running more processes (AGENTS §71).
 const config = loadConfig();
-const worker = registerM00Worker(config);
+const workers = [registerM00Worker(config), registerDeliveryWorker(config)];
 
-console.log(JSON.stringify({ level: "info", msg: "m00 worker started", queue: "portlane-m00" }));
+console.log(JSON.stringify({ level: "info", msg: "workers started", queues: ["portlane-m00", "portlane-deliveries"] }));
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, async () => {
-    await worker.close();
+    await Promise.all(workers.map((w) => w.close()));
     process.exit(0);
   });
 }
