@@ -13,6 +13,8 @@ import { smtpProvider } from "./smtp/index.js";
 import { webhookProvider } from "./webhook/index.js";
 import type { AppConfig } from "../../config.js";
 import { errorBody } from "../../errors.js";
+import { success } from "../../common/api-response.js";
+import { ResponseCode } from "../../common/response-code.enum.js";
 
 // register once
 import { registerProvider } from "./core/registry.js";
@@ -21,17 +23,22 @@ registerProvider(telegramProvider); registerProvider(discordProvider); registerP
 export async function providerRoutes(app: FastifyInstance, config: AppConfig) {
   const pool = dbPool(config);
 
-  app.get("/api/v1/providers", async (_req, reply) => {
+  app.get("/api/v1/providers", async (req, reply) => {
     const defs = listProviders().map(p=>({ key: p.key, capabilities: p.capabilities }));
-    return reply.send({ data: defs });
+    return reply.send(success(defs, String((req as any).id ?? "req_unknown")));
   });
 
   app.get("/api/v1/tenants/:tenantId/provider-connections", async (req, reply) => {
     const user = await requireJwtUser(req, reply, config); if(!user) return;
     const { tenantId } = req.params as any;
     if(!await requireTenantMember(pool, user.userId, tenantId, reply, req)) return;
-    const r = await pool.query("SELECT id,tenant_id,provider_key,name,config_json,status,last_tested_at,last_test_result,created_at,updated_at FROM provider_connections WHERE tenant_id=$1 ORDER BY created_at DESC", [tenantId]);
-    return reply.send({ data: r.rows });
+    const q = req.query as Record<string,string>;
+    const where:string[]=["tenant_id=$1"]; const vals:any[]=[tenantId]; let idx=2;
+    if(q.provider_key){ where.push(`provider_key=$${idx++}`); vals.push(q.provider_key); }
+    if(q.status){ where.push(`status=$${idx++}`); vals.push(q.status); }
+    if(q.q){ where.push(`(name ILIKE $${idx} OR provider_key ILIKE $${idx})`); vals.push(`%${q.q}%`); idx++; }
+    const r = await pool.query(`SELECT id,tenant_id,provider_key,name,config_json,status,last_tested_at,last_test_result,created_at,updated_at FROM provider_connections WHERE ${where.join(" AND ")} ORDER BY created_at DESC`, vals);
+    return reply.send(success(r.rows, String(req.id)));
   });
 
   app.post("/api/v1/tenants/:tenantId/provider-connections", async (req, reply) => {
@@ -51,7 +58,7 @@ export async function providerRoutes(app: FastifyInstance, config: AppConfig) {
     await pool.query("INSERT INTO provider_connections (id,tenant_id,provider_key,name,encrypted_credentials,config_json) VALUES ($1,$2,$3,$4,$5,$6)", [connId, tenantId, body.provider_key, body.name, enc, JSON.stringify(body.config)]);
     await pool.query("INSERT INTO audit_logs (id,tenant_id,actor_type,actor_id,action,target_type,target_id) VALUES ($1,$2,$3,$4,$5,$6,$7)", [id("aud"), tenantId,"user",user.userId,"provider_connection.created","provider_connection",connId]);
     const row = (await pool.query("SELECT id,tenant_id,provider_key,name,config_json,status,created_at FROM provider_connections WHERE id=$1",[connId])).rows[0];
-    return reply.status(201).send({ data: row });
+    return reply.status(201).send(success(row, String(req.id), ResponseCode.CREATED));
   });
 
   app.patch("/api/v1/tenants/:tenantId/provider-connections/:connId", async (req, reply) => {
@@ -80,7 +87,7 @@ export async function providerRoutes(app: FastifyInstance, config: AppConfig) {
     if (body.credentials) await pool.query("INSERT INTO audit_logs (id,tenant_id,actor_type,actor_id,action,target_type,target_id) VALUES ($1,$2,$3,$4,$5,$6,$7)", [id("aud"), tenantId, "user", user.userId, "provider_connection.credential_rotated", "provider_connection", connId]);
     if (body.name || body.config || body.status) await pool.query("INSERT INTO audit_logs (id,tenant_id,actor_type,actor_id,action,target_type,target_id) VALUES ($1,$2,$3,$4,$5,$6,$7)", [id("aud"), tenantId, "user", user.userId, "provider_connection.updated", "provider_connection", connId]);
     const row=(await pool.query("SELECT id,tenant_id,provider_key,name,config_json,status,created_at,updated_at FROM provider_connections WHERE id=$1",[connId])).rows[0];
-    return reply.send({ data: row });
+    return reply.send(success(row, String(req.id)));
   });
 
   app.delete("/api/v1/tenants/:tenantId/provider-connections/:connId", async (req, reply) => {
@@ -106,6 +113,6 @@ export async function providerRoutes(app: FastifyInstance, config: AppConfig) {
     const cfg = row.config_json as any;
     const result = await adapter.testConnection(creds as any, cfg);
     await pool.query("UPDATE provider_connections SET last_tested_at=NOW(), last_test_result=$1 WHERE id=$2", [JSON.stringify(result), connId]);
-    return reply.send({ data: result });
+    return reply.send(success(result, String(req.id)));
   });
 }

@@ -10,6 +10,8 @@ import { redactHeaders } from "../../lib/mask.js";
 import { validateOutboundUrl } from "../../lib/ssrf.js";
 import type { AppConfig } from "../../config.js";
 import { errorBody } from "../../errors.js";
+import { success } from "../../common/api-response.js";
+import { ResponseCode } from "../../common/response-code.enum.js";
 import { hashSecret, encrypt, decrypt } from "../../lib/crypto.js";
 
 function genPublicId(): string { return "wh_" + crypto.randomBytes(12).toString("hex"); }
@@ -23,7 +25,7 @@ export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
     const { tenantId } = req.params as any;
     if (!await requireTenantMember(pool, user.userId, tenantId, reply, req)) return;
     const r = await pool.query("SELECT id,tenant_id,name,public_identifier,signature_mode,status,forwarding_config_json,created_at,updated_at FROM webhook_endpoints WHERE tenant_id=$1 ORDER BY created_at DESC", [tenantId]);
-    return reply.send({ data: r.rows });
+    return reply.send(success(r.rows, String(req.id)));
   });
 
   app.post("/api/v1/tenants/:tenantId/webhook-endpoints", async (req, reply) => {
@@ -43,7 +45,7 @@ export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
     await pool.query("INSERT INTO webhook_endpoints (id,tenant_id,name,public_identifier,secret_hash,encrypted_secret,signature_mode,forwarding_config_json) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)", [wid, tenantId, body.name, pub, secretHash, encSecret, body.signature_mode, JSON.stringify(fwd)]);
     await pool.query("INSERT INTO audit_logs (id,tenant_id,actor_type,actor_id,action,target_type,target_id) VALUES ($1,$2,$3,$4,$5,$6,$7)", [id("aud"), tenantId, "user", user.userId, "webhook_endpoint.created", "webhook_endpoint", wid]);
     const row = (await pool.query("SELECT id,tenant_id,name,public_identifier,signature_mode,status,forwarding_config_json,created_at FROM webhook_endpoints WHERE id=$1", [wid])).rows[0];
-    return reply.status(201).send({ data: { ...row, secret: body.secret ? "***" : undefined, _oneTimeSecret: body.secret ?? undefined } });
+    return reply.status(201).send(success({ ...row, secret: body.secret ? "***" : undefined, _oneTimeSecret: body.secret ?? undefined }, String(req.id), ResponseCode.CREATED));
   });
 
   app.patch("/api/v1/tenants/:tenantId/webhook-endpoints/:endpointId", async (req, reply) => {
@@ -73,7 +75,7 @@ export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
     if (body.secret) await pool.query("INSERT INTO audit_logs (id,tenant_id,actor_type,actor_id,action,target_type,target_id) VALUES ($1,$2,$3,$4,$5,$6,$7)", [id("aud"), tenantId, "user", user.userId, "webhook_endpoint.secret_rotated", "webhook_endpoint", endpointId]);
     if (body.status || body.name || body.signature_mode || body.forwarding_url !== undefined) await pool.query("INSERT INTO audit_logs (id,tenant_id,actor_type,actor_id,action,target_type,target_id) VALUES ($1,$2,$3,$4,$5,$6,$7)", [id("aud"), tenantId, "user", user.userId, "webhook_endpoint.updated", "webhook_endpoint", endpointId]);
     const row = (await pool.query("SELECT id,tenant_id,name,public_identifier,signature_mode,status,forwarding_config_json,created_at,updated_at FROM webhook_endpoints WHERE id=$1", [endpointId])).rows[0];
-    return reply.send({ data: row });
+    return reply.send(success(row, String(req.id)));
   });
 
   app.delete("/api/v1/tenants/:tenantId/webhook-endpoints/:endpointId", async (req, reply) => {
@@ -90,7 +92,7 @@ export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
     const { tenantId, endpointId } = req.params as any;
     if (!await requireTenantMember(pool, user.userId, tenantId, reply, req)) return;
     const r = await pool.query("SELECT * FROM ip_allowlist_entries WHERE tenant_id=$1 AND scope_type='WEBHOOK_ENDPOINT' AND scope_id=$2", [tenantId, endpointId]);
-    return reply.send({ data: r.rows });
+    return reply.send(success(r.rows, String(req.id)));
   });
 
   app.post("/api/v1/tenants/:tenantId/webhook-endpoints/:endpointId/ip-allowlist", async (req, reply) => {
@@ -103,7 +105,7 @@ export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
     await pool.query("INSERT INTO ip_allowlist_entries (id,tenant_id,scope_type,scope_id,cidr,description) VALUES ($1,$2,$3,$4,$5,$6)", [entryId, tenantId, "WEBHOOK_ENDPOINT", endpointId, cidr, body.description ?? null]);
     await pool.query("INSERT INTO audit_logs (id,tenant_id,actor_type,actor_id,action,target_type,target_id,metadata_json) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)", [id("aud"), tenantId, "user", user.userId, "webhook_endpoint.ip_allowlist_added", "webhook_endpoint", endpointId, JSON.stringify({ cidr })]);
     const row = (await pool.query("SELECT * FROM ip_allowlist_entries WHERE id=$1", [entryId])).rows[0];
-    return reply.status(201).send({ data: row });
+    return reply.status(201).send(success(row, String(req.id), ResponseCode.CREATED));
   });
 
   app.delete("/api/v1/tenants/:tenantId/webhook-endpoints/:endpointId/ip-allowlist/:entryId", async (req, reply) => {
@@ -122,7 +124,7 @@ export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
     const q = req.query as Record<string, string>; const page = parseInt(q.page ?? "1",10)||1; const per=Math.min(100, parseInt(q.per_page??"25",10)||25);
     const total = (await pool.query("SELECT COUNT(*) FROM webhook_events WHERE tenant_id=$1", [tenantId])).rows[0].count;
     const rows = await pool.query("SELECT * FROM webhook_events WHERE tenant_id=$1 ORDER BY received_at DESC LIMIT $2 OFFSET $3", [tenantId, per, (page-1)*per]);
-    return reply.send({ data: rows.rows, meta: { page, per_page: per, total: parseInt(total,10) } });
+    return reply.send(success(rows.rows, String(req.id), ResponseCode.OK, undefined, { page, per_page: per, total: parseInt(total,10) }));
   });
 
   app.get("/api/v1/tenants/:tenantId/webhook-events/:eventId", async (req, reply) => {
@@ -132,7 +134,7 @@ export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
     const r = await pool.query("SELECT * FROM webhook_events WHERE id=$1 AND tenant_id=$2", [eventId, tenantId]);
     if (!r.rows.length) return reply.status(404).send(errorBody("NOT_FOUND","Webhook event not found.",String(req.id)));
     const attempts = await pool.query("SELECT * FROM webhook_forward_attempts WHERE webhook_event_id=$1 ORDER BY attempt_number", [eventId]);
-    return reply.send({ data: { event: r.rows[0], attempts: attempts.rows } });
+    return reply.send(success({ event: r.rows[0], attempts: attempts.rows }, String(req.id)));
   });
 
   app.post("/api/v1/tenants/:tenantId/webhook-events/:eventId/retry", async (req, reply) => {
@@ -141,7 +143,6 @@ export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
     if (!await requireTenantMember(pool, user.userId, tenantId, reply, req)) return;
     const ev = await pool.query("SELECT * FROM webhook_events WHERE id=$1 AND tenant_id=$2", [eventId, tenantId]);
     if (!ev.rows.length) return reply.status(404).send(errorBody("NOT_FOUND","Webhook event not found.",String(req.id)));
-    // simple re-forward attempt
     const endpoint = await pool.query("SELECT * FROM webhook_endpoints WHERE id=$1", [ev.rows[0].webhook_endpoint_id]);
     if (!endpoint.rows.length) return reply.status(404).send(errorBody("NOT_FOUND","Endpoint not found.",String(req.id)));
     const fwd = endpoint.rows[0].forwarding_config_json as Record<string, unknown>;
@@ -151,7 +152,7 @@ export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
       const res = await fetch(String(fwd.url), { method: "POST", headers: { "content-type":"application/json" }, body: JSON.stringify(ev.rows[0].payload_json), signal: AbortSignal.timeout(8000), redirect: "manual" });
       if (res.status >= 300 && res.status < 400) throw new Error(`Forward blocked: redirect ${res.status}`);
       await pool.query("INSERT INTO webhook_forward_attempts (id,tenant_id,webhook_event_id,attempt_number,status,response_status) VALUES ($1,$2,$3,$4,$5,$6)", [id("wfa"), tenantId, eventId, (await pool.query("SELECT COUNT(*) FROM webhook_forward_attempts WHERE webhook_event_id=$1",[eventId])).rows[0].count + 1, res.ok?"SUCCESS":"FAILED", res.status]);
-      return reply.send({ data: { status: res.ok ? "forwarded" : "failed", statusCode: res.status } });
+      return reply.send(success({ status: res.ok ? "forwarded" : "failed", statusCode: res.status }, String(req.id)));
     } catch (e: unknown) {
       await pool.query("INSERT INTO webhook_forward_attempts (id,tenant_id,webhook_event_id,attempt_number,status,error_message) VALUES ($1,$2,$3,$4,$5,$6)", [id("wfa"), tenantId, eventId, 1, "FAILED", String((e as Error).message).slice(0,500)]);
       return reply.status(502).send(errorBody("PROVIDER_ERROR","Forward failed.",String(req.id)));
@@ -166,7 +167,6 @@ export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
     if (endpoint.status !== "active") return reply.status(404).send(errorBody("NOT_FOUND","Webhook endpoint disabled.",String(req.id)));
 
     const ip = (req.ip ?? (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ?? "0.0.0.0").toString();
-    // IP allowlist
     const entries = await pool.query("SELECT cidr FROM ip_allowlist_entries WHERE scope_type='WEBHOOK_ENDPOINT' AND scope_id=$1 AND enabled=true", [endpoint.id]);
     const cidrs = entries.rows.map((r: { cidr: string })=>r.cidr);
     if (cidrs.length > 0 && !isIpAllowed(ip, cidrs)) {
@@ -174,10 +174,8 @@ export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
       return reply.status(403).send(errorBody("IP_NOT_ALLOWED","Source not allowed.",String(req.id)));
     }
 
-    // rate limit per endpoint 120/min
     if (!checkRateLimit(`wh:${endpoint.id}`, 120, 60_000)) return reply.status(429).send(errorBody("RATE_LIMITED","Rate limit exceeded.",String(req.id)));
 
-    // secret / signature verification — encrypted_secret is AES-GCM, decrypt first
     if (endpoint.signature_mode === "hmac_sha256" && endpoint.encrypted_secret) {
       const sig = (req.headers["x-webhook-signature"] ?? req.headers["x-signature"] ?? "") as string;
       const bodyRaw = JSON.stringify(req.body ?? {});
@@ -187,7 +185,6 @@ export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
       const a = Buffer.from(sig), b = Buffer.from(expected);
       if (a.length !== b.length || !crypto.timingSafeEqual(a,b)) return reply.status(401).send(errorBody("UNAUTHORIZED","Invalid signature.",String(req.id)));
     } else if (endpoint.secret_hash) {
-      // simple bearer secret via Authorization or x-webhook-secret
       const provided = (req.headers["x-webhook-secret"] ?? (req.headers.authorization as string)?.replace("Bearer ","") ?? "") as string;
       if (!provided || hashSecret(provided) !== endpoint.secret_hash) return reply.status(401).send(errorBody("UNAUTHORIZED","Invalid secret.",String(req.id)));
     }
@@ -198,14 +195,12 @@ export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
     const eventId = id("whe_evt");
     await pool.query("INSERT INTO webhook_events (id,tenant_id,webhook_endpoint_id,request_id,source_ip,method,safe_headers_json,payload_json,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'received')", [eventId, endpoint.tenant_id, endpoint.id, String(req.id), ip, req.method, JSON.stringify(safeHeaders), JSON.stringify(req.body ?? null)]);
 
-    // optional forward — SSRF-checked, timeout + no redirect
     const fwd = endpoint.forwarding_config_json as Record<string, unknown>;
     if (fwd.url) {
       try {
         await validateOutboundUrl(String(fwd.url));
         const res = await fetch(String(fwd.url), { method: "POST", headers: { "content-type":"application/json" }, body: JSON.stringify(req.body ?? {}), signal: AbortSignal.timeout(8000), redirect: "manual" });
         if (res.status >= 300 && res.status < 400) throw new Error(`Forward blocked: redirect ${res.status}`);
-        // drain with size limit
         const txt = await res.text().catch(() => "");
         void txt.slice(0, 4000);
         await pool.query("INSERT INTO webhook_forward_attempts (id,tenant_id,webhook_event_id,attempt_number,status,response_status) VALUES ($1,$2,$3,$4,$5,$6)", [id("wfa"), endpoint.tenant_id, eventId, 1, res.ok?"SUCCESS":"FAILED", res.status]);
@@ -214,7 +209,7 @@ export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
       }
     }
 
-    return reply.status(200).send({ data: { id: eventId, status: "received" } });
+    return reply.status(200).send(success({ id: eventId, status: "received" }, String(req.id)));
   }
 
   app.post("/hooks/:publicIdentifier", handleHook);

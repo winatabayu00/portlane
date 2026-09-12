@@ -7,6 +7,8 @@ import { hashSecret } from "../../lib/crypto.js";
 import { requireJwtUser, requireTenantMember } from "../auth/routes.js";
 import type { AppConfig } from "../../config.js";
 import { errorBody } from "../../errors.js";
+import { success } from "../../common/api-response.js";
+import { ResponseCode } from "../../common/response-code.enum.js";
 
 function generateApiKey(): { full: string; prefix: string; secret: string } {
   const prefix = crypto.randomBytes(4).toString("hex");
@@ -22,7 +24,7 @@ export async function apiKeyRoutes(app: FastifyInstance, config: AppConfig) {
     const { tenantId } = req.params as any;
     if (!await requireTenantMember(pool, user.userId, tenantId, reply, req)) return;
     const r = await pool.query("SELECT id,tenant_id,name,key_prefix,status,last_used_at,created_at,revoked_at FROM api_keys WHERE tenant_id=$1 ORDER BY created_at DESC", [tenantId]);
-    return reply.send({ data: r.rows });
+    return reply.send(success(r.rows, String(req.id)));
   });
 
   app.post("/api/v1/tenants/:tenantId/api-keys", async (req, reply) => {
@@ -35,7 +37,7 @@ export async function apiKeyRoutes(app: FastifyInstance, config: AppConfig) {
     const keyId = id("ak");
     await pool.query("INSERT INTO api_keys (id,tenant_id,name,key_prefix,secret_hash,status) VALUES ($1,$2,$3,$4,$5,'active')", [keyId, tenantId, body.name, prefix, hash]);
     await pool.query("INSERT INTO audit_logs (id,tenant_id,actor_type,actor_id,action,target_type,target_id) VALUES ($1,$2,$3,$4,$5,$6,$7)", [id("aud"), tenantId, "user", user.userId, "api_key.created", "api_key", keyId]);
-    return reply.status(201).send({ data: { id: keyId, name: body.name, key: full, prefix, status: "active" } });
+    return reply.status(201).send(success({ id: keyId, name: body.name, key: full, prefix, status: "active" }, String(req.id), ResponseCode.CREATED));
   });
 
   app.post("/api/v1/tenants/:tenantId/api-keys/:keyId/revoke", async (req, reply) => {
@@ -45,7 +47,7 @@ export async function apiKeyRoutes(app: FastifyInstance, config: AppConfig) {
     const r = await pool.query("UPDATE api_keys SET status='revoked', revoked_at=NOW() WHERE id=$1 AND tenant_id=$2 AND status='active' RETURNING id", [keyId, tenantId]);
     if (!r.rows.length) return reply.status(404).send(errorBody("NOT_FOUND","API key not found.",String(req.id)));
     await pool.query("INSERT INTO audit_logs (id,tenant_id,actor_type,actor_id,action,target_type,target_id) VALUES ($1,$2,$3,$4,$5,$6,$7)", [id("aud"), tenantId, "user", user.userId, "api_key.revoked", "api_key", keyId]);
-    return reply.send({ data: { id: keyId, status: "revoked" } });
+    return reply.send(success({ id: keyId, status: "revoked" }, String(req.id)));
   });
 
   app.get("/api/v1/tenants/:tenantId/api-keys/:keyId/ip-allowlist", async (req, reply) => {
@@ -53,7 +55,7 @@ export async function apiKeyRoutes(app: FastifyInstance, config: AppConfig) {
     const { tenantId, keyId } = req.params as any;
     if (!await requireTenantMember(pool, user.userId, tenantId, reply, req)) return;
     const r = await pool.query("SELECT * FROM ip_allowlist_entries WHERE tenant_id=$1 AND scope_type='API_KEY' AND scope_id=$2 ORDER BY created_at", [tenantId, keyId]);
-    return reply.send({ data: r.rows });
+    return reply.send(success(r.rows, String(req.id)));
   });
 
   app.post("/api/v1/tenants/:tenantId/api-keys/:keyId/ip-allowlist", async (req, reply) => {
@@ -68,7 +70,7 @@ export async function apiKeyRoutes(app: FastifyInstance, config: AppConfig) {
     await pool.query("INSERT INTO ip_allowlist_entries (id,tenant_id,scope_type,scope_id,cidr,description) VALUES ($1,$2,$3,$4,$5,$6)", [entryId, tenantId, "API_KEY", keyId, cidr, body.description ?? null]);
     await pool.query("INSERT INTO audit_logs (id,tenant_id,actor_type,actor_id,action,target_type,target_id,metadata_json) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)", [id("aud"), tenantId, "user", user.userId, "api_key.ip_allowlist_added", "api_key", keyId, JSON.stringify({ cidr })]);
     const row = (await pool.query("SELECT * FROM ip_allowlist_entries WHERE id=$1", [entryId])).rows[0];
-    return reply.status(201).send({ data: row });
+    return reply.status(201).send(success(row, String(req.id), ResponseCode.CREATED));
   });
 
   app.delete("/api/v1/tenants/:tenantId/api-keys/:keyId/ip-allowlist/:entryId", async (req, reply) => {

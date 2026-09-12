@@ -8,6 +8,8 @@ import { signJwt, verifyJwt } from "../../lib/auth.js";
 import { checkRateLimit } from "../../lib/rateLimit.js";
 import type { AppConfig } from "../../config.js";
 import { errorBody } from "../../errors.js";
+import { success } from "../../common/api-response.js";
+import { ResponseCode } from "../../common/response-code.enum.js";
 
 export async function authRoutes(app: FastifyInstance, config: AppConfig) {
   const pool = dbPool(config);
@@ -27,7 +29,7 @@ export async function authRoutes(app: FastifyInstance, config: AppConfig) {
     await pool.query("INSERT INTO tenants (id,name,slug) VALUES ($1,$2,$3)", [tenantId, `${body.name}'s workspace`, slug]);
     await pool.query("INSERT INTO tenant_memberships (id,tenant_id,user_id,role) VALUES ($1,$2,$3,$4)", [id("mem"), tenantId, userId, "OWNER"]);
     const token = signJwt({ userId, email }, config);
-    return reply.send({ data: { user: { id: userId, email, name: body.name }, tenant: { id: tenantId, slug }, token } });
+    return reply.send(success({ user: { id: userId, email, name: body.name }, tenant: { id: tenantId, slug }, token }, String(req.id), ResponseCode.CREATED));
   });
 
   app.post("/api/v1/auth/login", async (req, reply) => {
@@ -40,14 +42,14 @@ export async function authRoutes(app: FastifyInstance, config: AppConfig) {
     const ok = await bcrypt.compare(body.password, u.password_hash);
     if (!ok) return reply.status(401).send(errorBody("UNAUTHORIZED", "Invalid credentials.", String(req.id)));
     const token = signJwt({ userId: u.id, email: u.email }, config);
-    return reply.send({ data: { token, user: { id: u.id, email: u.email, name: u.name } } });
+    return reply.send(success({ token, user: { id: u.id, email: u.email, name: u.name } }, String(req.id)));
   });
 
   app.get("/api/v1/auth/me", async (req, reply) => {
     const user = await requireJwtUser(req, reply, config);
     if (!user) return;
     const tenants = await pool.query("SELECT t.id,t.name,t.slug,t.status,t.created_at FROM tenants t JOIN tenant_memberships m ON m.tenant_id=t.id WHERE m.user_id=$1 ORDER BY t.created_at", [user.userId]);
-    return reply.send({ data: { user: { id: user.userId, email: user.email }, tenants: tenants.rows } });
+    return reply.send(success({ user: { id: user.userId, email: user.email }, tenants: tenants.rows }, String(req.id)));
   });
 }
 

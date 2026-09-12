@@ -22,17 +22,43 @@ Optional idempotency:
 Idempotency-Key: <client-generated-key>
 ```
 
-## 2. Standard Error Shape
+## 2. Envelope
+
+All API responses use `rc` (response code) + `status`.
+
+Success:
 
 ```json
 {
-  "error": {
-    "code": "IP_NOT_ALLOWED",
-    "message": "Request source is not allowed for this API key.",
-    "request_id": "req_xxx"
-  }
+  "rc": 2000,
+  "status": "success",
+  "message": "Success",
+  "data": { "...": "..." },
+  "errors": null,
+  "correlationId": "req_xxx",
+  "timestamp": "2026-03-07T00:00:00.000Z",
+  "meta": { "page": 1, "per_page": 25, "total": 42 }
 }
 ```
+
+`meta` present only on paginated endpoints. `201 Created` uses `rc: 2001`.
+
+Error (all 4xx/5xx + 404 handler):
+
+```json
+{
+  "rc": 4002,
+  "status": "failed",
+  "message": "Resource not found.",
+  "data": null,
+  "errors": { "code": "NOT_FOUND", "message": "Resource not found.", "statusCode": 404, "path": "/api/v1/...", "method": "GET" },
+  "correlationId": "req_xxx",
+  "timestamp": "2026-03-07T00:00:00.000Z",
+  "error": { "code": "NOT_FOUND", "message": "Resource not found.", "request_id": "req_xxx" }
+}
+```
+
+`error` is compat — clients should read `rc`/`errors`/`correlationId`. `correlationId` echoes `x-request-id` and `x-correlation-id` headers.
 
 Provider secrets must never be returned in errors.
 
@@ -56,26 +82,24 @@ Provider secrets must never be returned in errors.
 }
 ```
 
-Response:
+Response (`201`, `rc: 2001`):
 
 ```json
 {
+  "rc": 2001,
+  "status": "success",
+  "message": "Resource created successfully",
   "data": {
     "id": "msg_123",
     "status": "queued",
     "deliveries": [
-      {
-        "id": "dlv_1",
-        "destination_id": "dst_123",
-        "status": "QUEUED"
-      },
-      {
-        "id": "dlv_2",
-        "destination_id": "dst_456",
-        "status": "QUEUED"
-      }
+      { "id": "dlv_1", "destination_id": "dst_123", "status": "QUEUED" },
+      { "id": "dlv_2", "destination_id": "dst_456", "status": "QUEUED" }
     ]
-  }
+  },
+  "errors": null,
+  "correlationId": "req_xxx",
+  "timestamp": "2026-03-07T00:00:00.000Z"
 }
 ```
 

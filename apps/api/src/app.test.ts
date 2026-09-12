@@ -40,9 +40,18 @@ describe("app foundation", () => {
     const app = await buildApp(testConfig);
     const res = await app.inject({ method: "GET", url: "/nope" });
     expect(res.statusCode).toBe(404);
-    expect(res.json()).toEqual({
-      error: { code: "NOT_FOUND", message: "Resource not found.", request_id: expect.any(String) },
+    const body = res.json();
+    expect(body).toMatchObject({
+      rc: 4002,
+      status: "failed",
+      message: "Resource not found.",
+      correlationId: expect.any(String),
+      timestamp: expect.any(String),
     });
+    expect(body.errors).toMatchObject({ code: "NOT_FOUND", statusCode: 404 });
+    expect(body.correlationId).toBe(body.errors.request_id);
+    expect(body.error).toBeUndefined();
+    expect(res.headers["x-correlation-id"]).toBe(body.correlationId);
     await app.close();
   });
 
@@ -68,7 +77,7 @@ describe("app foundation", () => {
     });
     const res = await app.inject({ method: "POST", url: "/internal/m00-ping" });
     expect(res.statusCode).toBe(503);
-    expect(res.json().error.code).toBe("INFRA_UNAVAILABLE");
+    expect(res.json().errors.code).toBe("INFRA_UNAVAILABLE");
     await app.close();
   });
 
@@ -89,7 +98,7 @@ describe("app foundation", () => {
       expect(spa.body).toContain("spa-shell");
       const api = await app.inject({ method: "GET", url: "/api/whatever" });
       expect(api.statusCode).toBe(404);
-      expect(api.json().error.code).toBe("NOT_FOUND");
+      expect(api.json().errors.code).toBe("NOT_FOUND");
       await app.close();
     } finally {
       await rm(dir, { recursive: true, force: true });

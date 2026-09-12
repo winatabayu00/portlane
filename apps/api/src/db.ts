@@ -20,7 +20,9 @@ export async function checkDatabase(config: AppConfig): Promise<"ok" | string> {
     return result.rows[0]?.ok === 1 ? "ok" : "unexpected response";
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    throw new Error(`Database connection failed: ${reason}`);
+    const error = new Error(`Database connection failed: ${reason}`);
+    (error as any).code = "INFRA_UNAVAILABLE";
+    throw error;
   }
 }
 
