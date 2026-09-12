@@ -2,7 +2,7 @@
 // rtk — Portlane runtime toolkit (lazy, stdlib only)
 // usage: yarn rtk <cmd>
 // No Docker. Infra Postgres+Redis di minisever via Tailscale.
-import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, openSync, closeSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { spawn, spawnSync, execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -52,11 +52,11 @@ function readPid(name) {
 function killPid(name) {
   const pid = readPid(name); if (!pid) return false;
   if (!isRunning(pid)) { rmSync(pidFile(name), { force: true }); return false; }
-  try { process.kill(pid, "SIGTERM"); } catch {}
-  // grace 3s then SIGKILL
+  // detached bg → pgid == pid, kill group biar subtree (yarn→tsx) ikut mati
+  try { process.kill(-pid, "SIGTERM"); } catch { try { process.kill(pid, "SIGTERM"); } catch {} }
   const start = Date.now();
   while (Date.now() - start < 3000 && isRunning(pid)) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
-  if (isRunning(pid)) try { process.kill(pid, "SIGKILL"); } catch {}
+  if (isRunning(pid)) { try { process.kill(-pid, "SIGKILL"); } catch { try { process.kill(pid, "SIGKILL"); } catch {} } }
   rmSync(pidFile(name), { force: true }); return true;
 }
 // sync spawn helpers
@@ -156,15 +156,18 @@ async function cmdDev() {
   if (!dbUrl) warn("DATABASE_URL/DB_* kosong di .env — /ready akan 503");
   else if (dbUrl.includes("/ai_engineering_os")) warn("DATABASE_URL menunjuk ai_engineering_os — ganti ke /portlane (isolated)");
   if (!env.REDIS_URL && !process.env.REDIS_URL) warn("REDIS_URL kosong di .env — queue akan 503");
-  // stop existing
+  // merge .env ke child env (fix: sebelumnya hanya process.env → DATABASE_URL Required)
+  const mergedEnv = { ...env, ...process.env, FORCE_COLOR: "1" };
+  if (!mergedEnv.DATABASE_URL) {
+    const built = resolveDatabaseUrl({ ...env, ...process.env });
+    if (built) mergedEnv.DATABASE_URL = built;
+  }
   for (const s of ["api", "worker", "web"]) killPid(s);
-  // spawn with tsx watch (dev)
-  const { createWriteStream } = await import("node:fs");
   function bg(name, cmd, args) {
-    const out = createWriteStream(logFile(name), { flags: "w" });
-    const child = spawn(cmd, args, { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, FORCE_COLOR: "1" } });
-    child.stdout.pipe(out); child.stderr.pipe(out);
-    child.on("close", (code) => { if (code !== 0 && code !== null) console.error(`[${name}] exit ${code} — lihat ${logFile(name)}`); });
+    const fd = openSync(logFile(name), "w");
+    const child = spawn(cmd, args, { cwd: ROOT, detached: true, stdio: ["ignore", fd, fd], env: mergedEnv });
+    child.unref();
+    closeSync(fd);
     writeFileSync(pidFile(name), String(child.pid));
     ok(`${name} pid ${child.pid} → ${logFile(name)}`);
   }
@@ -183,14 +186,19 @@ async function cmdStart() {
   if (!dbUrl || !env.REDIS_URL) warn("DATABASE_URL/REDIS_URL kosong — cek .env (DB portlane isolated)");
   if (dbUrl.includes("/ai_engineering_os")) { err("DATABASE_URL jangan pakai ai_engineering_os — ganti ke /portlane"); process.exit(1); }
   info("build..."); if (!run("yarn", ["build"])) { err("build gagal"); process.exit(1); }
-  for (const s of ["api", "worker"]) killPid(s);
-  const { createWriteStream } = await import("node:fs");
+  for (const s of ["api", "worker", "web"]) killPid(s);
+  const mergedEnv = { ...env, ...process.env };
+  if (!mergedEnv.DATABASE_URL) {
+    const built = resolveDatabaseUrl({ ...env, ...process.env });
+    if (built) mergedEnv.DATABASE_URL = built;
+  }
   function bg(name, cmd, args) {
-    const out = createWriteStream(logFile(name), { flags: "w" });
-    const child = spawn(cmd, args, { cwd: ROOT, detached: false, stdio: ["ignore", "pipe", "pipe"], env: process.env });
-    child.stdout.pipe(out); child.stderr.pipe(out);
+    const fd = openSync(logFile(name), "w");
+    const child = spawn(cmd, args, { cwd: ROOT, detached: true, stdio: ["ignore", fd, fd], env: mergedEnv });
+    child.unref();
+    closeSync(fd);
     writeFileSync(pidFile(name), String(child.pid));
-    ok(`${name} pid ${child.pid}`);
+    ok(`${name} pid ${child.pid} → ${logFile(name)}`);
   }
   bg("api", "node", ["apps/api/dist/index.js"]);
   bg("worker", "node", ["apps/api/dist/worker.js"]);
