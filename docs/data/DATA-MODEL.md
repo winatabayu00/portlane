@@ -201,7 +201,7 @@ Recommended unique constraint (code pakai full `UNIQUE`, bukan partial — JWT p
 
 Infra: `schema_migrations`, `m00_healthcheck` ada di `001_m00_baseline.sql`, bukan domain.
 
-Indexes: kode punya banyak index (`002`, `003`, `004`); docs hanya list UNIQUE. Lihat migrasi sebagai sumber. `api_keys.key_prefix` index non-unique + `LIMIT 1` — tabrakan mungkin. Validasi `scopes/allowed_*/expires_at` app-only, tanpa CHECK DB.
+Indexes: kode punya banyak index (`002`, `003`, `004`, `005`); docs hanya list UNIQUE. Lihat migrasi sebagai sumber. `005` tambah composite per pola query (`tenant_id+created_at`, `tenant_id+status`, `tenant_id+message_id`, `delivery_id+attempt_number`, `webhook_endpoint_id+received_at`) tanpa index PK redundan. `api_keys.key_prefix` index non-unique + `LIMIT 1` — tabrakan mungkin. Validasi `scopes/allowed_*/expires_at` app-only, tanpa CHECK DB.
 
 ## Tenant Boundary Rule
 
