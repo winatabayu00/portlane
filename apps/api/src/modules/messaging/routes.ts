@@ -3,7 +3,7 @@ import { z } from "zod";
 import { dbPool } from "../../db.js";
 import { id } from "../../lib/ids.js";
 import { requireJwtUser, requireTenantMember } from "../auth/routes.js";
-import { resolveApiKey } from "../api-keys/routes.js";
+import { resolveApiKey, hasScope, isExpired } from "../api-keys/routes.js";
 import { isIpAllowed } from "../../lib/ip.js";
 import { checkRateLimit } from "../../lib/rateLimit.js";
 import type { AppConfig } from "../../config.js";
@@ -11,6 +11,12 @@ import { errorBody } from "../../errors.js";
 import { success } from "../../common/api-response.js";
 import { ResponseCode } from "../../common/response-code.enum.js";
 import { enqueueDelivery } from "../delivery/queue.js";
+
+function parseArr(v:any):string[]{
+  if(!v) return [];
+  if(Array.isArray(v)) return v;
+  try{ const p=typeof v==="string"?JSON.parse(v):v; return Array.isArray(p)?p:[]; }catch{ return []; }
+}
 
 async function authenticateMachine(req:any, config:AppConfig){
   const pool=dbPool(config);
@@ -35,10 +41,12 @@ export async function messagingRoutes(app:FastifyInstance, config:AppConfig){
       return reply.status(401).send(errorBody("UNAUTHORIZED","Missing API key. Use Authorization: Bearer pl_live_...",String(req.id)));
     }
     if(ak.status!=="active") return reply.status(401).send(errorBody("UNAUTHORIZED","API key revoked.",String(req.id)));
+    if(isExpired(ak)) return reply.status(401).send(errorBody("UNAUTHORIZED","API key expired.",String(req.id)));
+    if(!hasScope(ak,"messages:write")) return reply.status(403).send(errorBody("FORBIDDEN","API key scope not allowed: messages:write required.",String(req.id)));
     const entries = await pool.query("SELECT cidr FROM ip_allowlist_entries WHERE scope_type='API_KEY' AND scope_id=$1 AND enabled=true",[ak.id]);
     const cidrs=entries.rows.map((r:any)=>r.cidr);
     if(cidrs.length>0){
-      const ip=(req.ip ?? req.headers["x-forwarded-for"] as string ?? "127.0.0.1").toString().split(",")[0].trim();
+      const ip = req.ip ?? "127.0.0.1";
       if(!isIpAllowed(ip, cidrs)){
         await pool.query("INSERT INTO audit_logs (id,tenant_id,actor_type,actor_id,action,target_type,target_id,metadata_json) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",[id("aud"),ak.tenant_id,"system",ak.id,"api_key.blocked_ip","api_key",ak.id, JSON.stringify({ip})]);
         return reply.status(403).send(errorBody("IP_NOT_ALLOWED","Request source is not allowed for this API key.",String(req.id)));
@@ -54,9 +62,22 @@ export async function messagingRoutes(app:FastifyInstance, config:AppConfig){
 
     const tenantId=ak.tenant_id;
 
-    const destRows = await pool.query(`SELECT id, provider_connection_id, status FROM destinations WHERE id = ANY($1) AND tenant_id=$2`, [body.destinations, tenantId]);
+    // destination allowlist check before DB fetch
+    const allowedDests = parseArr(ak.allowed_destination_ids);
+    if(allowedDests.length>0){
+      const notAllowed = body.destinations.filter((d:string)=>!allowedDests.includes(d));
+      if(notAllowed.length) return reply.status(403).send(errorBody("FORBIDDEN",`Destination not allowed for this API key: ${notAllowed.join(", ")}`,String(req.id)));
+    }
+
+    const destRows = await pool.query(`SELECT d.id, d.provider_connection_id, d.status, pc.provider_key FROM destinations d JOIN provider_connections pc ON pc.id=d.provider_connection_id WHERE d.id = ANY($1) AND d.tenant_id=$2`, [body.destinations, tenantId]);
     if(destRows.rows.length !== body.destinations.length) return reply.status(404).send(errorBody("NOT_FOUND","One or more destinations not found.",String(req.id)));
     for(const d of destRows.rows) if(d.status!=="active") return reply.status(422).send(errorBody("VALIDATION_ERROR",`Destination ${d.id} is disabled.`,String(req.id)));
+
+    const allowedProviders = parseArr(ak.allowed_providers);
+    if(allowedProviders.length>0){
+      const blocked = destRows.rows.filter((r:any)=>!allowedProviders.includes(r.provider_key));
+      if(blocked.length) return reply.status(403).send(errorBody("FORBIDDEN",`Provider not allowed for this API key: ${blocked.map((r:any)=>r.provider_key).join(", ")}`,String(req.id)));
+    }
 
     if(idempotencyKey){
       const existing = await pool.query("SELECT id FROM messages WHERE tenant_id=$1 AND api_key_id=$2 AND idempotency_key=$3",[tenantId, ak.id, idempotencyKey]);

@@ -1,0 +1,139 @@
+.pl-method {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.pl-method-get {
+  background: var(--bg-muted);
+  color: var(--success);
+}
+
+.pl-method-post {
+  background: var(--bg-muted);
+  color: var(--accent);
+}
+
+.pl-method-put {
+  background: var(--bg-muted);
+  color: var(--warning);
+}
+
+.pl-method-delete {
+  background: var(--bg-muted);
+  color: var(--danger);
+}
+
+.pl-filters {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.pl-filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pl-filter-group label {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+.pl-filter-group select {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+}
+
+.pl-filter-group select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-bg);
+}
+
+.pl-pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.pl-pagination span {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.pl-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 20px;
+}
+
+@media (min-width: 768px) {
+  .pl-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.pl-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.pl-detail-grid label {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.pl-detail-grid p {
+  margin: 0;
+  font-size: 14px;
+  word-break: break-all;
+}
+
+.pl-text-truncate {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pl-json {
+  background: var(--bg-code);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 16px;
+  font-family: 'Monaco', 'Menlo', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.pl-empty-state {
+  text-align: center;
+  padding: 40px;
+  color: var(--text-muted);
+}
+
+.pl-empty-state p {
+  margin: 0;
+}

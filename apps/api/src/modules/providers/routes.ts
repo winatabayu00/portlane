@@ -41,7 +41,7 @@ export async function providerRoutes(app: FastifyInstance, config: AppConfig) {
     return reply.send(success(r.rows, String(req.id)));
   });
 
-  app.post("/api/v1/tenants/:tenantId/provider-connections", async (req, reply) => {
+app.post("/api/v1/tenants/:tenantId/provider-connections", async (req, reply) => {
     const user = await requireJwtUser(req, reply, config); if(!user) return;
     const { tenantId } = req.params as any;
     if(!await requireTenantMember(pool, user.userId, tenantId, reply, req)) return;
@@ -50,7 +50,7 @@ export async function providerRoutes(app: FastifyInstance, config: AppConfig) {
     if(!adapter) return reply.status(422).send(errorBody("VALIDATION_ERROR","Unknown provider",String(req.id)));
     try { adapter.validateConnectionConfig(body.config as any, body.credentials as any); } catch(e:any){ return reply.status(422).send(errorBody("VALIDATION_ERROR", e.message, String(req.id))); }
     if (body.provider_key === "webhook") {
-      const url = String((body.config as Record<string,unknown>).url ?? (body.credentials as Record<string,unknown>).url ?? "");
+      const url = String((body.config as Record<string,unknown>).url ?? (body.credentials as any).url ?? "");
       if (url) try { await validateOutboundUrl(url); } catch(e: unknown){ return reply.status(422).send(errorBody("VALIDATION_ERROR", `Webhook URL blocked by SSRF policy: ${String((e as Error).message)}`, String(req.id))); }
     }
     const enc = encryptCreds(body.credentials as any, config.APP_ENCRYPTION_KEY || config.JWT_SECRET);
@@ -60,6 +60,8 @@ export async function providerRoutes(app: FastifyInstance, config: AppConfig) {
     const row = (await pool.query("SELECT id,tenant_id,provider_key,name,config_json,status,created_at FROM provider_connections WHERE id=$1",[connId])).rows[0];
     return reply.status(201).send(success(row, String(req.id), ResponseCode.CREATED));
   });
+
+  
 
   app.patch("/api/v1/tenants/:tenantId/provider-connections/:connId", async (req, reply) => {
     const user = await requireJwtUser(req, reply, config); if(!user) return;

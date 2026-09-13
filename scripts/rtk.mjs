@@ -82,10 +82,12 @@ ${C.green}Setup & Build${C.reset}
 
 ${C.green}Run${C.reset}
   yarn rtk dev                dev: api 4002 + worker + web 3002 (Vite HMR proxy ke API) — log .rtk/logs/
-  yarn rtk start              prod: build lalu single-port 4002 (serve dist) + worker
-  yarn rtk start:prod         alias start
+  yarn rtk start              alias dev (tanpa build) — api 4002 + worker + web 3002
+  yarn rtk build              yarn build (api + web) — tanpa start
+  yarn rtk prod               prod: build lalu single-port 4002 (serve dist) + worker
+  yarn rtk start:prod         alias prod
   yarn rtk stop               hentikan semua proses rtk
-  yarn rtk restart            stop + start (prod) | dev → stop + dev
+  yarn rtk restart            stop + start/prod (deteksi mode jalan)
   yarn rtk status             cek PID + curl :4002/health /ready
   yarn rtk logs [svc] [-f]    svc: api|worker|web|all (default all), -f follow
   yarn rtk health             curl :4002/health
@@ -99,8 +101,8 @@ ${C.green}DB (isolated: portlane)${C.reset}
   yarn rtk db:shell           psql via DATABASE_URL (butuh psql terinstal)
 
 ${C.green}Contoh cepat${C.reset}
-  yarn rtk setup && yarn rtk db:migrate && yarn rtk dev   # dev: api 4002, web 3002
-  yarn rtk build && yarn rtk start && yarn rtk status
+  yarn rtk setup && yarn rtk db:migrate && yarn rtk start  # dev (start = dev, tanpa build)
+  yarn rtk build && yarn rtk prod && yarn rtk status       # prod: build + single-port
 
 Env: .env (DATABASE_URL prioritas 1, fallback DB_* → rakit URL; APP_PORT=4002, REDIS_URL, APP_ENCRYPTION_KEY)
 Logs: .rtk/logs/   PIDs: .rtk/pids/
@@ -332,8 +334,8 @@ switch (cmd) {
   case "build": run("yarn", ["build"]); break;
   case "check": run("yarn", ["lint"]) && run("yarn", ["typecheck"]) && run("yarn", ["workspaces", "run", "test"]); break;
   case "clean": rmSync(join(ROOT, ".rtk"), { recursive: true, force: true }); rmSync(join(ROOT, "apps/api/dist"), { recursive: true, force: true }); rmSync(join(ROOT, "apps/web/dist"), { recursive: true, force: true }); ok("clean selesai"); break;
-  case "dev": case "start:dev": await cmdDev(); break;
-  case "start": case "start:prod": await cmdStart(); break;
+  case "dev": case "start": case "start:dev": await cmdDev(); break;
+  case "prod": case "start:prod": await cmdStart(); break;
   case "stop": cmdStop(); break;
   case "restart": {
     const isDev = readPid("web") && isRunning(readPid("web"));

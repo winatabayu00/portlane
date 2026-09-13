@@ -44,6 +44,10 @@ Unique:
 - last_used_at
 - created_at
 - revoked_at
+- expires_at nullable (ISO8601, enforced 401 when expired)
+- scopes jsonb default `[]` — empty = unrestricted; allowed: `messages:write`, `messages:read`, `deliveries:read`, `deliveries:retry`
+- allowed_providers jsonb default `[]` — empty = all; subset of `telegram|discord|smtp|webhook`
+- allowed_destination_ids jsonb default `[]` — empty = all; validated tenant-scoped destination IDs
 
 ## ip_allowlist_entries
 
@@ -169,6 +173,23 @@ Recommended unique constraint:
 - status
 - response_status nullable
 - error_message nullable
+- created_at
+
+## inbound_logs
+
+- id (== request_id / correlationId)
+- tenant_id nullable (resolved from `/api/v1/tenants/:tenantId` path; null for non-tenant paths)
+- request_id
+- method
+- path
+- source_ip
+- user_agent nullable
+- request_headers_json (authorization/cookie stripped)
+- request_body_json nullable
+- response_status nullable
+- response_headers_json nullable
+- response_body_json nullable (not stored for privacy — null)
+- duration_ms nullable
 - created_at
 
 ## Tenant Boundary Rule

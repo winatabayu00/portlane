@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { loadConfig, trustedProxyList, type AppConfig } from "./config.js";
-import { checkDatabase } from "./db.js";
+import { checkDatabase, dbPool } from "./db.js";
 import { ApiError, errorBody } from "./errors.js";
 import { failure, success } from "./common/api-response.js";
 import { ResponseCode } from "./common/response-code.enum.js";
@@ -19,6 +19,7 @@ import { destinationRoutes } from "./modules/destinations/routes.js";
 import { messagingRoutes } from "./modules/messaging/routes.js";
 import { webhookRoutes } from "./modules/webhooks/routes.js";
 import { observabilityRoutes } from "./modules/observability/routes.js";
+import { inboundRoutes, resolveInboundTenantId } from "./modules/inbound/routes.js";
 
 const REDACTED_PATHS = [
   "req.headers.authorization",
@@ -85,6 +86,45 @@ export async function buildApp(config: AppConfig = loadConfig()): Promise<Fastif
     const dur = Date.now() - ((req as any)._startAt ?? Date.now());
     if (req.url !== "/health" && req.url !== "/ready") {
       req.log.info({ correlationId: cid, method: req.method, path: req.url, statusCode: reply.statusCode, duration: `${dur}ms` }, `◀ ${req.method} ${req.url} — ${reply.statusCode} — ${dur}ms`);
+    }
+    
+    // Log inbound request-response to database
+    if (req.url.startsWith("/api/v1/")) {
+      const pool = dbPool(config);
+      const tenantId = (req as any).tenantId ?? resolveInboundTenantId(req.url);
+      
+      const requestHeaders = { ...req.headers };
+      delete requestHeaders.authorization;
+      delete requestHeaders.cookie;
+      
+      const responseHeaders = { ...reply.getHeaders() };
+      
+      try {
+        await pool.query(
+          `INSERT INTO inbound_logs (
+            id, tenant_id, request_id, method, path, source_ip, user_agent,
+            request_headers_json, request_body_json, response_status,
+            response_headers_json, response_body_json, duration_ms, created_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())`,
+          [
+            cid,
+            tenantId,
+            cid,
+            req.method,
+            req.url,
+            req.ip ?? "127.0.0.1",
+            req.headers["user-agent"],
+            JSON.stringify(requestHeaders),
+            req.body ? JSON.stringify(req.body) : null,
+            reply.statusCode,
+            JSON.stringify(responseHeaders),
+            null, // response_body_json not stored for privacy
+            dur
+          ]
+        );
+      } catch (err) {
+        req.log.error({ err, correlationId: cid }, "Failed to log inbound request");
+      }
     }
   });
 
@@ -177,6 +217,7 @@ export async function buildApp(config: AppConfig = loadConfig()): Promise<Fastif
   await messagingRoutes(app, config);
   await webhookRoutes(app, config);
   await observabilityRoutes(app, config);
+  await inboundRoutes(app, config);
 
   const webDist = resolveWebDist(config);
   app.setNotFoundHandler((req, reply) => {

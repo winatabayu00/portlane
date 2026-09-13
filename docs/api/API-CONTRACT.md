@@ -150,10 +150,41 @@ Secrets must be write-only in normal responses.
 ## 7. API Keys
 
 ### GET /api-keys
+
+Returns `id, tenant_id, name, key_prefix, status, last_used_at, created_at, revoked_at, expires_at, scopes, allowed_destination_ids, allowed_providers`. `scopes/allowed_*` empty = unrestricted. Fallback maps legacy rows to `null/[]` when migration `003` not yet applied.
+
 ### POST /api-keys
+
+```json
+{
+  "name": "prod",
+  "expires_at": "2026-12-31T00:00:00.000Z",
+  "scopes": ["messages:write"],
+  "allowed_providers": ["telegram"],
+  "allowed_destination_ids": ["dst_xxx"]
+}
+```
+
+`expires_at` must be future ISO8601 or `null`. `scopes` allowed: `messages:write|messages:read|deliveries:read|deliveries:retry`. `allowed_providers` subset of `telegram|discord|smtp|webhook`. `allowed_destination_ids` validated tenant-scoped. Response `201 rc:2001` includes row + `key: pl_live_<prefix>.<secret>` + `prefix`. Full secret shown only once.
+
+### PATCH /api-keys/:id
+
+Updatable: `name, expires_at, scopes, allowed_destination_ids, allowed_providers`. Same validation as create. `expires_at: null` clears expiry. Returns updated row.
+
 ### POST /api-keys/:id/revoke
 
-Creation response is the only time the full secret is shown.
+Marks `revoked`. Subsequent machine auth `401`.
+
+### DELETE /api-keys/:id
+
+Hard delete. Requires `revoked` first else `422 Revoke key before delete.` Cascades `ip_allowlist_entries` for that key scope. `204` on success.
+
+Machine auth enforcement (applies to `POST /messages` and all `Authorization: Bearer pl_live_…` paths):
+
+- `401 API key expired.` when `expires_at <= now`
+- `403 API key scope not allowed: messages:write required.` when `scopes` non-empty and lacking required scope
+- `403 Destination not allowed for this API key: …` when `allowed_destination_ids` non-empty and request contains outside set
+- `403 Provider not allowed for this API key: …` when `allowed_providers` non-empty and destination provider outside set
 
 ## 8. API Key IP Allowlist
 
@@ -202,6 +233,16 @@ Security may use:
 ### GET /webhook-endpoints/:id/ip-allowlist
 ### POST /webhook-endpoints/:id/ip-allowlist
 ### DELETE /webhook-endpoints/:id/ip-allowlist/:entryId
+
+## 11b. Inbound Logs
+
+### GET /tenants/:tenantId/inbound?method=&status=&page=&per_page=
+
+Tenant-scoped via JWT. `status` integer HTTP code, invalid → `422`. Returns `meta` pagination envelope.
+
+### GET /tenants/:tenantId/inbound/:logId
+
+Tenant-scoped. Missing → `404` envelope (`errors.code: NOT_FOUND`).
 
 ## 12. Pagination
 

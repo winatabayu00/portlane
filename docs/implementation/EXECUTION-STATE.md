@@ -1,8 +1,8 @@
 # Portlane Execution State
 
-Current milestone: M10 (completed — pending E2E)
-Overall status: IN PROGRESS
-Repo class: IMPLEMENTED M00-M10 (M11 pending verification)
+Current milestone: M11 (E2E 13/13 PASS — pending commit/release)
+Overall status: COMPLETE PENDING COMMIT
+Repo class: IMPLEMENTED M00-M11 (dirty tree, uncommitted)
 
 M00: PASS — app boots, DB/Redis health checks, queue baseline, FE/BE single port, lint/typecheck/test PASS
 M01: PASS — users, auth (register/login/JWT), tenants, memberships, tenant isolation enforced
@@ -27,8 +27,11 @@ M11 No7 Process successful delivery: PASS 2026-09-13 — dlv_6cba7049806641f5 QU
 M11 No8 Process retryable failure: PASS 2026-09-13 — dlv_c0163dc47b64485a vs https://httpbin.org/status/500: 3 attempts semua RETRYABLE provider 500 PROVIDER_ERROR, status RETRYING + next_retry_at set (backoff sentral worker).
 M11 No9 Reach dead state: PASS 2026-09-13 — dlv_c0163dc47b64485a 5 attempts (4x RETRYABLE, ke-5 FAILED), status DEAD, next_retry_at null, last_error PROVIDER_ERROR. Backoff habis [0,5s,30s,120s,600s].
 M11 No10 Manual retry: PASS 2026-09-13 — POST /tenants/ten_4dcb9b6cd3fd47cc/deliveries/dlv_c0163dc47b64485a/retry kembalikan DEAD→QUEUED; conn arah ulang ke https://httpbin.org/post; attempt 6 SUCCESS 200 DELIVERED; 5 riwayat lama utuh.
+M11 No11 Receive inbound webhook: PASS 2026-09-13 — endpoint whe_b7dd41b2a8c048d0 (wh_e8aa59063fa4711b5c7691b7) terima POST /hooks payload persist whe_evt_ff07ac473c7e44ed status received, source_ip 127.0.0.1.
+M11 No12 Reject wrong IP: PASS 2026-09-13 — allowlist 10.255.255.0/24, POST /hooks dari 127.0.0.1 return 403 IP_NOT_ALLOWED + audit webhook.blocked_ip (allowlist uji dihapus).
+M11 No13 Reject cross-tenant access: PASS 2026-09-13 — user kedua (ten_9da8c13011164e90) akses ten_4dcb9b6cd3fd47cc messages/destinations/dst_5ec10a3bca1146f5 semua 403 FORBIDDEN "Not a member of tenant".
 
-Last update: 2026-09-13 — M11 No1-No10 verified (tambah dead + manual retry E2E PASS)
+Last update: 2026-09-13 — M11 No1-No13 verified (E2E 13/13 PASS)
 Infra: no Docker, mini-server Postgres/Redis via DATABASE_URL/REDIS_URL, trustProxy false default
 
 M10 verification: typecheck PASS, lint PASS, tests 9/9 PASS, build PASS (api + web)
