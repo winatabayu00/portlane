@@ -1,8 +1,8 @@
 # Portlane Execution State
 
-Current milestone: M11 (E2E 13/13 PASS — pending commit/release)
-Overall status: COMPLETE PENDING COMMIT
-Repo class: IMPLEMENTED M00-M11 (dirty tree, uncommitted)
+Current milestone: M11 (COMPLETE — E2E 13/13 PASS, V1 released)
+Overall status: COMPLETE
+Repo class: IMPLEMENTED M00-M11 (clean tree)
 
 M00: PASS — app boots, DB/Redis health checks, queue baseline, FE/BE single port, lint/typecheck/test PASS
 M01: PASS — users, auth (register/login/JWT), tenants, memberships, tenant isolation enforced
@@ -16,7 +16,7 @@ M08: PASS — webhook endpoints, HMAC/bearer secret, IP allowlist, event persist
 M09: PASS — dashboard (Overview/Providers/Destinations/Messages/Deliveries/Webhooks/Logs/Settings)
 M10: PASS — request limits (bodyLimit 1MB + payload 100k), log masking (pino redact + mask.ts), SSRF defense (BLOCKED_RANGES + DNS resolve), rate limits (api-key 60/min, webhook 120/min, auth 10/min, provider test 10/min), credential encryption at rest + rotation audit, security audit_logs (api_key/provider/webhook/ip_allowlist/blocked_ip/secret_rotated)
 
-M11: IN PROGRESS — E2E verification (13 flows) + V1 release
+M11: COMPLETE — E2E verification (13 flows) + V1 release
 M11 No1 Create tenant: PASS 2026-09-13 — register auto-creates personal tenant + OWNER membership; POST /api/v1/tenants creates second tenant; GET /api/v1/tenants lists both; envelope rc 2001/2000.
 M11 No2 Create API key: PASS 2026-09-13 — POST returns 201 rc 2001 with full secret once (pl_live_<prefix>.<secret>); GET list exposes prefix/status/scopes only, no secret leak; stored hashed.
 M11 No3 Restrict API key by IP: PASS 2026-09-13 — allowlist 127.0.0.1/32 passes IP gate (404 NOT_FOUND downstream, not 403); 10.255.255.0/24 from 127.0.0.1 returns 403 IP_NOT_ALLOWED + audit api_key.blocked_ip.
@@ -31,7 +31,7 @@ M11 No11 Receive inbound webhook: PASS 2026-09-13 — endpoint whe_b7dd41b2a8c04
 M11 No12 Reject wrong IP: PASS 2026-09-13 — allowlist 10.255.255.0/24, POST /hooks dari 127.0.0.1 return 403 IP_NOT_ALLOWED + audit webhook.blocked_ip (allowlist uji dihapus).
 M11 No13 Reject cross-tenant access: PASS 2026-09-13 — user kedua (ten_9da8c13011164e90) akses ten_4dcb9b6cd3fd47cc messages/destinations/dst_5ec10a3bca1146f5 semua 403 FORBIDDEN "Not a member of tenant".
 
-Last update: 2026-09-13 — M11 No1-No13 verified (E2E 13/13 PASS)
+Last update: 2026-09-13 — M11 No1-No13 verified (E2E 13/13 PASS); V1 tagged v1.0.0 on 0401742
 Infra: no Docker, mini-server Postgres/Redis via DATABASE_URL/REDIS_URL, trustProxy false default
 
 M10 verification: typecheck PASS, lint PASS, tests 9/9 PASS, build PASS (api + web)
