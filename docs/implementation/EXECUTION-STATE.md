@@ -23,8 +23,9 @@ M11 No3 Restrict API key by IP: PASS 2026-09-13 — allowlist 127.0.0.1/32 passe
 M11 No4 Create provider connection: PASS 2026-09-13 — webhook conn 201 rc 2001 (config only, creds never in response); discord conn 201; localhost URL rejected 422 SSRF policy.
 M11 No5 Create destination: PASS 2026-09-13 — webhook dst 201 dst_3af59914a4d34e69; discord dst 201 dst_cda0cc3ea40b4cca; conn asing 404.
 M11 No6 Submit broadcast: PASS 2026-09-13 — 1 msg msg_19c7bddcf6ce46f5 fan-out 2 QUEUED deliveries; replay idempotency key return 200 id sama, tanpa duplikat.
+M11 No7 Process successful delivery: PASS 2026-09-13 — dlv_6cba7049806641f5 QUEUED→PROCESSING→DELIVERED attempt 1, provider 200, delivered_at set. Fix: worker.ts register 4 provider (registry kosong sebabkan NOT_FOUND massal); migrasi 004_inbound_logs (002 sudah applied sebelum tabel ada).
 
-Last update: 2026-09-13 — M11 No1-No6 verified (tenant, API key, IP restrict, provider connection, destination, broadcast E2E PASS)
+Last update: 2026-09-13 — M11 No1-No7 verified (tambah successful delivery E2E PASS + fix worker registry)
 Infra: no Docker, mini-server Postgres/Redis via DATABASE_URL/REDIS_URL, trustProxy false default
 
 M10 verification: typecheck PASS, lint PASS, tests 9/9 PASS, build PASS (api + web)
