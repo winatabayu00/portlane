@@ -19,8 +19,9 @@ M10: PASS — request limits (bodyLimit 1MB + payload 100k), log masking (pino r
 M11: IN PROGRESS — E2E verification (13 flows) + V1 release
 M11 No1 Create tenant: PASS 2026-09-13 — register auto-creates personal tenant + OWNER membership; POST /api/v1/tenants creates second tenant; GET /api/v1/tenants lists both; envelope rc 2001/2000.
 M11 No2 Create API key: PASS 2026-09-13 — POST returns 201 rc 2001 with full secret once (pl_live_<prefix>.<secret>); GET list exposes prefix/status/scopes only, no secret leak; stored hashed.
+M11 No3 Restrict API key by IP: PASS 2026-09-13 — allowlist 127.0.0.1/32 passes IP gate (404 NOT_FOUND downstream, not 403); 10.255.255.0/24 from 127.0.0.1 returns 403 IP_NOT_ALLOWED + audit api_key.blocked_ip.
 
-Last update: 2026-09-13 — M11 No1+No2 verified (create tenant, create API key E2E PASS)
+Last update: 2026-09-13 — M11 No1+No2+No3 verified (create tenant, create API key, IP restrict E2E PASS)
 Infra: no Docker, mini-server Postgres/Redis via DATABASE_URL/REDIS_URL, trustProxy false default
 
 M10 verification: typecheck PASS, lint PASS, tests 9/9 PASS, build PASS (api + web)
