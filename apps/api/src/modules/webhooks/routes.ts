@@ -6,13 +6,13 @@ import { id } from "../../lib/ids.js";
 import { requireJwtUser, requireTenantMember } from "../auth/routes.js";
 import { checkRateLimit } from "../../lib/rateLimit.js";
 import { isIpAllowed, parseCidrOrThrow } from "../../lib/ip.js";
-import { redactHeaders } from "../../lib/mask.js";
-import { validateOutboundUrl } from "../../lib/ssrf.js";
+import { redactCredentials, redactHeaders } from "../../lib/mask.js";
+import { readCapped, validateOutboundUrl } from "../../lib/ssrf.js";
 import type { AppConfig } from "../../config.js";
 import { errorBody } from "../../errors.js";
 import { success } from "../../common/api-response.js";
 import { ResponseCode } from "../../common/response-code.enum.js";
-import { hashSecret, encrypt, decrypt } from "../../lib/crypto.js";
+import { hashSecret, encrypt, decrypt, verifyHmacSha256 } from "../../lib/crypto.js";
 
 function genPublicId(): string { return "wh_" + crypto.randomBytes(12).toString("hex"); }
 
@@ -123,7 +123,7 @@ export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
     if (!await requireTenantMember(pool, user.userId, tenantId, reply, req)) return;
     const q = req.query as Record<string, string>; const page = parseInt(q.page ?? "1",10)||1; const per=Math.min(100, parseInt(q.per_page??"25",10)||25);
     const total = (await pool.query("SELECT COUNT(*) FROM webhook_events WHERE tenant_id=$1", [tenantId])).rows[0].count;
-    const rows = await pool.query("SELECT * FROM webhook_events WHERE tenant_id=$1 ORDER BY received_at DESC LIMIT $2 OFFSET $3", [tenantId, per, (page-1)*per]);
+    const rows = await pool.query("SELECT id,tenant_id,webhook_endpoint_id,request_id,source_ip,method,safe_headers_json,status,received_at,processed_at,created_at FROM webhook_events WHERE tenant_id=$1 ORDER BY received_at DESC LIMIT $2 OFFSET $3", [tenantId, per, (page-1)*per]);
     return reply.send(success(rows.rows, String(req.id), ResponseCode.OK, undefined, { page, per_page: per, total: parseInt(total,10) }));
   });
 
@@ -134,7 +134,8 @@ export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
     const r = await pool.query("SELECT * FROM webhook_events WHERE id=$1 AND tenant_id=$2", [eventId, tenantId]);
     if (!r.rows.length) return reply.status(404).send(errorBody("NOT_FOUND","Webhook event not found.",String(req.id)));
     const attempts = await pool.query("SELECT * FROM webhook_forward_attempts WHERE webhook_event_id=$1 ORDER BY attempt_number", [eventId]);
-    return reply.send(success({ event: r.rows[0], attempts: attempts.rows }, String(req.id)));
+    const event = { ...r.rows[0], payload_json: redactCredentials(r.rows[0].payload_json), safe_headers_json: redactHeaders(r.rows[0].safe_headers_json ?? {}) };
+    return reply.send(success({ event, attempts: attempts.rows }, String(req.id)));
   });
 
   app.post("/api/v1/tenants/:tenantId/webhook-events/:eventId/retry", async (req, reply) => {
@@ -157,7 +158,8 @@ export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
       const timeoutMs = Math.min(15000, Math.max(1000, Number((fwd as any).timeout_ms ?? 8000)));
       const n = parseInt((await pool.query("SELECT COUNT(*) FROM webhook_forward_attempts WHERE webhook_event_id=$1",[eventId])).rows[0].count,10)+1;
       const res = await fetch(String(fwd.url), { method: "POST", headers, body: bodyRaw, signal: AbortSignal.timeout(timeoutMs), redirect: "manual" });
-      if (res.status >= 300 && res.status < 400) throw new Error(`Forward blocked: redirect ${res.status}`);
+      if (res.status >= 300 && res.status < 400) { await readCapped(res, 4096).catch(() => ""); throw new Error(`Forward blocked: redirect ${res.status}`); }
+      await readCapped(res, 4096).catch(() => "");
       await pool.query("INSERT INTO webhook_forward_attempts (id,tenant_id,webhook_event_id,attempt_number,status,response_status) VALUES ($1,$2,$3,$4,$5,$6)", [id("wfa"), tenantId, eventId, n, res.ok?"SUCCESS":"FAILED", res.status]);
       return reply.send(success({ status: res.ok ? "forwarded" : "failed", statusCode: res.status }, String(req.id)));
     } catch (e: unknown) {
@@ -184,7 +186,7 @@ export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
 
     if (!checkRateLimit(`wh:${endpoint.id}`, 120, 60_000)) return reply.status(429).send(errorBody("RATE_LIMITED","Rate limit exceeded.",String(req.id)));
 
-    const rawBody = JSON.stringify(req.body ?? {});
+    const rawBody = typeof (req as any).rawBody === "string" && (req as any).rawBody ? (req as any).rawBody as string : JSON.stringify(req.body ?? {});
     if (rawBody.length > 100_000) return reply.status(413).send(errorBody("VALIDATION_ERROR","Payload too large.",String(req.id)));
 
     if (endpoint.signature_mode === "hmac_sha256" && endpoint.encrypted_secret) {
@@ -192,9 +194,7 @@ export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
       const bodyRaw = rawBody;
       let secret: string;
       try { secret = decrypt(endpoint.encrypted_secret, config.APP_ENCRYPTION_KEY || config.JWT_SECRET); } catch { secret = endpoint.encrypted_secret; }
-      const expected = "sha256=" + crypto.createHmac("sha256", secret).update(bodyRaw).digest("hex");
-      const a = Buffer.from(sig), b = Buffer.from(expected);
-      if (a.length !== b.length || !crypto.timingSafeEqual(a,b)) return reply.status(401).send(errorBody("UNAUTHORIZED","Invalid signature.",String(req.id)));
+      if (!verifyHmacSha256(bodyRaw, sig, secret)) return reply.status(401).send(errorBody("UNAUTHORIZED","Invalid signature.",String(req.id)));
     } else if (endpoint.secret_hash) {
       const provided = (req.headers["x-webhook-secret"] ?? (req.headers.authorization as string)?.replace("Bearer ","") ?? "") as string;
       if (!provided || hashSecret(provided) !== endpoint.secret_hash) return reply.status(401).send(errorBody("UNAUTHORIZED","Invalid secret.",String(req.id)));
@@ -216,9 +216,8 @@ export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
         if (endpoint.encrypted_secret) { try { const s = decrypt(endpoint.encrypted_secret, config.APP_ENCRYPTION_KEY || config.JWT_SECRET); headers["x-portlane-signature"] = "sha256=" + crypto.createHmac("sha256", s).update(bodyRaw).digest("hex"); } catch {} }
         const timeoutMs = Math.min(15000, Math.max(1000, Number((fwd as any).timeout_ms ?? 8000)));
         const res = await fetch(String(fwd.url), { method: "POST", headers, body: bodyRaw, signal: AbortSignal.timeout(timeoutMs), redirect: "manual" });
-        if (res.status >= 300 && res.status < 400) throw new Error(`Forward blocked: redirect ${res.status}`);
-        const txt = await res.text().catch(() => "");
-        void txt.slice(0, 4000);
+        if (res.status >= 300 && res.status < 400) { await readCapped(res, 4096).catch(() => ""); throw new Error(`Forward blocked: redirect ${res.status}`); }
+        await readCapped(res, 4096).catch(() => "");
         await pool.query("INSERT INTO webhook_forward_attempts (id,tenant_id,webhook_event_id,attempt_number,status,response_status) VALUES ($1,$2,$3,$4,$5,$6)", [id("wfa"), endpoint.tenant_id, eventId, 1, res.ok?"SUCCESS":"FAILED", res.status]);
       } catch (e: unknown) {
         await pool.query("INSERT INTO webhook_forward_attempts (id,tenant_id,webhook_event_id,attempt_number,status,error_message) VALUES ($1,$2,$3,$4,$5,$6)", [id("wfa"), endpoint.tenant_id, eventId, 1, "FAILED", String((e as Error).message).slice(0,500)]);

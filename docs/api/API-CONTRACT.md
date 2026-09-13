@@ -10,11 +10,19 @@ Base path:
 
 ## 1. Authentication
 
-Machine API:
+Machine API (only `POST /messages`):
 
 ```http
-Authorization: Bearer <portlane_api_key>
+Authorization: Bearer pl_live_<prefix>.<secret>
 ```
+
+Dashboard API (all `/tenants/:tenantId/*`):
+
+```http
+Authorization: Bearer <jwt>
+```
+
+`GET /providers`, `GET /health`, `GET /ready` public. `pl_live_` rejected on JWT routes (`401`). JWT routes require membership else `403`; missing tenant resource → `404`.
 
 Optional idempotency:
 
@@ -41,7 +49,11 @@ Success:
 }
 ```
 
-`meta` present only on paginated endpoints. `201 Created` uses `rc: 2001`.
+`meta` present only on paginated endpoints. `201 Created` uses `rc: 2001`. `DELETE` returns `204` empty, tanpa envelope. `POST /auth/register` return `200 rc:2001` (kecualian).
+
+Error: `errorBody` kirim `errors:{code,message,statusCode,request_id}` tanpa `path,method,error`. `failure()` tambah `path,method`. `404` handler pakai `errorBody`. `IP_NOT_ALLOWED` map ke HTTP `403 rc:4030`.
+
+Idempotency replay return `200` data lama, bukan `409`. `413` ganda: hook `VALIDATION_ERROR`, global `PAYLOAD_TOO_LARGE rc:4013`.
 
 Error (all 4xx/5xx + 404 handler):
 
@@ -64,96 +76,77 @@ Provider secrets must never be returned in errors.
 
 ## 3. Messages
 
-### POST /messages
+### POST /messages (machine, tenant dari API key)
 
-```json
-{
-  "destinations": [
-    "dst_123",
-    "dst_456"
-  ],
-  "message": {
-    "subject": "Production Alert",
-    "body": "API unavailable.",
-    "metadata": {
-      "severity": "critical"
-    }
-  }
-}
-```
+Replay idempotency key sama return `200` data lama, bukan `409`.
 
-Response (`201`, `rc: 2001`):
+### POST /tenants/:tenantId/messages (dashboard JWT, tanpa idempotency)
 
-```json
-{
-  "rc": 2001,
-  "status": "success",
-  "message": "Resource created successfully",
-  "data": {
-    "id": "msg_123",
-    "status": "queued",
-    "deliveries": [
-      { "id": "dlv_1", "destination_id": "dst_123", "status": "QUEUED" },
-      { "id": "dlv_2", "destination_id": "dst_456", "status": "QUEUED" }
-    ]
-  },
-  "errors": null,
-  "correlationId": "req_xxx",
-  "timestamp": "2026-03-07T00:00:00.000Z"
-}
-```
+### GET /tenants/:tenantId/messages
 
-### GET /messages
+Tenant-scoped paginated history. Machine `GET /messages` tidak ada.
 
-Tenant-scoped paginated history.
-
-### GET /messages/:id
+### GET /tenants/:tenantId/messages/:id
 
 Returns message + deliveries.
 
 ## 4. Deliveries
 
-### GET /deliveries/:id
+### GET /tenants/:tenantId/deliveries (list)
+
+### GET /tenants/:tenantId/deliveries/:id
 
 Returns delivery details and attempts.
 
-### POST /deliveries/:id/retry
+### POST /tenants/:tenantId/deliveries/:id/retry
 
-Allowed only for eligible failed/dead deliveries.
+Eligible: `FAILED,DEAD,RETRYING` else `409`. Missing → `404`.
 
 ## 5. Provider Connections
 
-### GET /providers
+Semua tenant-scoped: `/tenants/:tenantId/provider-connections...`.
+
+### GET /tenants/:tenantId/overview, GET .../logs, GET .../deliveries
+
+Dashboard observability.
+
+### GET /providers (public)
 
 Returns installed provider definitions and capabilities.
 
-### GET /provider-connections
+### GET /tenants/:tenantId/provider-connections
 
-### POST /provider-connections
+### POST /tenants/:tenantId/provider-connections
 
-### PATCH /provider-connections/:id
+### PATCH /tenants/:tenantId/provider-connections/:id
 
-### DELETE /provider-connections/:id
+### DELETE /tenants/:tenantId/provider-connections/:id (`204`)
 
-### POST /provider-connections/:id/test
+Dibatasi `RESTRICT` bila dipakai deliveries.
 
-Secrets must be write-only in normal responses.
+### POST /tenants/:tenantId/provider-connections/:id/test (10/min)
+
+Secrets must be write-only in normal responses. Discord test offline (hostname check), Telegram live `getMe`.
 
 ## 6. Destinations
 
-### GET /destinations
-### POST /destinations
-### GET /destinations/:id
-### PATCH /destinations/:id
-### DELETE /destinations/:id
+Semua tenant-scoped: `/tenants/:tenantId/destinations...`.
+
+### GET /tenants/:tenantId/destinations
+### POST /tenants/:tenantId/destinations
+### GET /tenants/:tenantId/destinations/:id
+### PATCH /tenants/:tenantId/destinations/:id
+### DELETE /tenants/:tenantId/destinations/:id (`204`, `RESTRICT` bila dipakai)
 
 ## 7. API Keys
 
-### GET /api-keys
+Semua tenant-scoped: `/tenants/:tenantId/api-keys...`.
+
+### GET /tenants/:tenantId/api-keys
 
 Returns `id, tenant_id, name, key_prefix, status, last_used_at, created_at, revoked_at, expires_at, scopes, allowed_destination_ids, allowed_providers`. `scopes/allowed_*` empty = unrestricted. Fallback maps legacy rows to `null/[]` when migration `003` not yet applied.
 
-### POST /api-keys
+### POST /tenants/:tenantId/api-keys
 
 ```json
 {
@@ -167,19 +160,19 @@ Returns `id, tenant_id, name, key_prefix, status, last_used_at, created_at, revo
 
 `expires_at` must be future ISO8601 or `null`. `scopes` allowed: `messages:write|messages:read|deliveries:read|deliveries:retry`. `allowed_providers` subset of `telegram|discord|smtp|webhook`. `allowed_destination_ids` validated tenant-scoped. Response `201 rc:2001` includes row + `key: pl_live_<prefix>.<secret>` + `prefix`. Full secret shown only once.
 
-### PATCH /api-keys/:id
+### PATCH /tenants/:tenantId/api-keys/:id
 
 Updatable: `name, expires_at, scopes, allowed_destination_ids, allowed_providers`. Same validation as create. `expires_at: null` clears expiry. Returns updated row.
 
-### POST /api-keys/:id/revoke
+### POST /tenants/:tenantId/api-keys/:id/revoke
 
 Marks `revoked`. Subsequent machine auth `401`.
 
-### DELETE /api-keys/:id
+### DELETE /tenants/:tenantId/api-keys/:id
 
 Hard delete. Requires `revoked` first else `422 Revoke key before delete.` Cascades `ip_allowlist_entries` for that key scope. `204` on success.
 
-Machine auth enforcement (applies to `POST /messages` and all `Authorization: Bearer pl_live_…` paths):
+Machine auth enforcement (only `POST /messages` checks scope/allowlist/IP/rate; JWT routes reject `pl_live_` with `401`):
 
 - `401 API key expired.` when `expires_at <= now`
 - `403 API key scope not allowed: messages:write required.` when `scopes` non-empty and lacking required scope
@@ -188,9 +181,9 @@ Machine auth enforcement (applies to `POST /messages` and all `Authorization: Be
 
 ## 8. API Key IP Allowlist
 
-### GET /api-keys/:id/ip-allowlist
-### POST /api-keys/:id/ip-allowlist
-### DELETE /api-keys/:id/ip-allowlist/:entryId
+### GET /tenants/:tenantId/api-keys/:id/ip-allowlist
+### POST /tenants/:tenantId/api-keys/:id/ip-allowlist
+### DELETE /tenants/:tenantId/api-keys/:id/ip-allowlist/:entryId
 
 Request:
 
@@ -203,36 +196,33 @@ Request:
 
 ## 9. Incoming Webhooks
 
-Public endpoint example:
+Public:
 
 ```text
 POST /hooks/:publicIdentifier
+POST /api/v1/hooks/:publicIdentifier (legacy alias)
 ```
 
-This endpoint is not authenticated by tenant API key.
-
-Security may use:
-
-- IP allowlist
-- endpoint secret
-- signature verification
+Headers: `x-webhook-signature`/`x-signature` (`sha256=` prefix) atau `x-webhook-secret`/`Authorization`. Rate `120/min`, payload `100KB` → `413`. Mode `none` + `secret_hash` tetap enforce secret.
 
 ## 10. Webhook Management
 
-### GET /webhook-endpoints
-### POST /webhook-endpoints
-### PATCH /webhook-endpoints/:id
-### DELETE /webhook-endpoints/:id
+Semua tenant-scoped: `/tenants/:tenantId/webhook-endpoints...`.
 
-### GET /webhook-events
-### GET /webhook-events/:id
-### POST /webhook-events/:id/retry
+### GET /tenants/:tenantId/webhook-endpoints
+### POST /tenants/:tenantId/webhook-endpoints (return `_oneTimeSecret` sekali)
+### PATCH /tenants/:tenantId/webhook-endpoints/:id
+### DELETE /tenants/:tenantId/webhook-endpoints/:id (`204`)
+
+### GET /tenants/:tenantId/webhook-events
+### GET /tenants/:tenantId/webhook-events/:id (return `request_id,source_ip,method,safe_headers_json,status,received_at`)
+### POST /tenants/:tenantId/webhook-events/:id/retry (`200/422/502/404`; manual only, auto-retry belum ada)
 
 ## 11. Webhook IP Allowlist
 
-### GET /webhook-endpoints/:id/ip-allowlist
-### POST /webhook-endpoints/:id/ip-allowlist
-### DELETE /webhook-endpoints/:id/ip-allowlist/:entryId
+### GET /tenants/:tenantId/webhook-endpoints/:id/ip-allowlist
+### POST /tenants/:tenantId/webhook-endpoints/:id/ip-allowlist
+### DELETE /tenants/:tenantId/webhook-endpoints/:id/ip-allowlist/:entryId
 
 ## 11b. Inbound Logs
 
@@ -244,7 +234,11 @@ Tenant-scoped via JWT. `status` integer HTTP code, invalid → `422`. Returns `m
 
 Tenant-scoped. Missing → `404` envelope (`errors.code: NOT_FOUND`).
 
-## 12. Pagination
+## 12. Auth, Tenants, Health (dashboard, JWT)
+
+`POST /api/v1/auth/register` (`200 rc:2001`), `POST /api/v1/auth/login` (`10/min` per IP), `GET /api/v1/auth/me`. `GET/POST /api/v1/tenants`, `GET /api/v1/tenants/:id`, `GET/POST /api/v1/tenants/:id/members`. `GET /health`, `GET /ready`, `POST /internal/m00-ping` tidak pakai envelope.
+
+## 13. Pagination
 
 Recommended canonical shape:
 

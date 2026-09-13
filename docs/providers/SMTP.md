@@ -9,11 +9,11 @@ Related: [documentation index](../../README.md)
 
 ## Connection Config
 
-- host
-- port
+- host (`validateSmtpHost`: blocklist loopback/private/link-local/metadata + DNS resolve check)
+- port (tanpa blocklist — gap)
 - username
 - password
-- TLS/STARTTLS mode
+- `secure` boolean (bukan mode TLS/STARTTLS eksplisit)
 - sender email
 - sender name optional
 

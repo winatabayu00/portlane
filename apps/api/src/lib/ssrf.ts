@@ -29,18 +29,15 @@ function isBlockedIp(ip: string): boolean {
   return false;
 }
 
-export async function validateOutboundUrl(urlStr: string): Promise<void> {
-  let url: URL;
-  try { url = new URL(urlStr); } catch { throw new Error("Invalid URL"); }
-  if (!["http:", "https:"].includes(url.protocol)) throw new Error("URL must be http(s)");
-  const host = url.hostname;
-  if (["localhost", "metadata.google.internal"].includes(host)) throw new Error("Blocked target");
+async function assertSafeHost(host: string, label: string): Promise<void> {
+  const h = host.toLowerCase();
+  if (["localhost", "metadata.google.internal"].includes(h)) throw new Error(`Blocked target: ${label}`);
   // if host is literal IP, check directly
-  if (isIP(host)) {
-    if (isBlockedIp(host)) throw new Error(`Blocked private/loopback target: ${host}`);
+  if (isIP(h)) {
+    if (isBlockedIp(h)) throw new Error(`Blocked private/loopback target: ${label}`);
     return;
   }
-  // DNS resolve and check all addresses
+  // DNS resolve and check all addresses (best-effort; TOCTOU inherent to resolve-then-fetch)
   try {
     const addrs = await lookup(host, { all: true });
     for (const a of addrs) if (isBlockedIp(a.address)) throw new Error(`Blocked private target resolved: ${a.address}`);
@@ -50,6 +47,30 @@ export async function validateOutboundUrl(urlStr: string): Promise<void> {
   }
 }
 
-export function isSafeRedirect(urlStr: string): boolean {
-  try { const u = new URL(urlStr); return ["http:", "https:"].includes(u.protocol) && !isBlockedIp(u.hostname); } catch { return false; }
+export async function validateOutboundUrl(urlStr: string): Promise<void> {
+  let url: URL;
+  try { url = new URL(urlStr); } catch { throw new Error("Invalid URL"); }
+  if (!["http:", "https:"].includes(url.protocol)) throw new Error("URL must be http(s)");
+  await assertSafeHost(url.hostname, url.hostname);
+}
+
+export async function readCapped(res: Response, maxBytes = 4096): Promise<string> {
+  if (!res.body) return (await res.text().catch(() => "")).slice(0, maxBytes);
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) { chunks.push(value); total += value.length; }
+    if (total > maxBytes) break;
+  }
+  try { await reader.cancel(); } catch {}
+  const buf = Buffer.concat(chunks).subarray(0, maxBytes);
+  return buf.toString("utf8");
+}
+
+export async function validateSmtpHost(host: string): Promise<void> {
+  if (!host || typeof host !== "string") throw new Error("SMTP host required");
+  await assertSafeHost(host, host);
 }

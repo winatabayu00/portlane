@@ -5,16 +5,11 @@ Related: [documentation index](../../README.md)
 ## V1 Capabilities
 
 - SEND_MESSAGE
-- optional EMBEDS if implemented
+- EMBEDS diklaim tapi kirim plain `content` saja; bot mode `NOT_IMPLEMENTED`
 
 ## Connection Modes
 
-V1 may support one or both:
-
-- webhook URL
-- bot token
-
-Keep the provider contract stable even if implementation initially chooses webhook-only delivery.
+Aktual: webhook-only; test offline (cek hostname, tanpa network). Send/test + create/update validasi via `validateOutboundUrl`; redirect `manual`, 3xx diblokir.
 
 ## Destination Config
 

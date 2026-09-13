@@ -5,8 +5,9 @@ Related: [documentation index](../../README.md)
 ## V1 Capabilities
 
 - SEND_MESSAGE
-- RECEIVE_WEBHOOK (optional provider-side inbound integration)
-- basic formatting
+- RECEIVE_WEBHOOK (diklaim di capabilities; tanpa integrasi inbound provider-side — gap)
+- basic formatting (`parse_mode` passthrough apa pun, tanpa whitelist)
+- test live `getMe`
 
 ## Connection Config
 

@@ -1,5 +1,6 @@
 import type { ProviderAdapter } from "../core/types.js";
 import { ProviderError } from "../core/types.js";
+import { validateSmtpHost } from "../../../lib/ssrf.js";
 import nodemailer from "nodemailer";
 export const smtpProvider: ProviderAdapter = {
   key:"smtp",
@@ -15,6 +16,7 @@ export const smtpProvider: ProviderAdapter = {
   },
   async send({ message, destination, connection }){
     const c=connection.credentials as any;
+    await validateSmtpHost(String(c.host ?? ""));
     const to = String((destination.config as any).email ?? (destination.config as any).address);
     const transporter=nodemailer.createTransport({
       host: c.host, port: Number(c.port), secure: Boolean(c.secure),
@@ -39,6 +41,7 @@ export const smtpProvider: ProviderAdapter = {
   },
   async testConnection(creds){
     const c=creds as any;
+    try { await validateSmtpHost(String(c.host ?? "")); } catch(e:any){ return { ok:false, message:e.message }; }
     const transporter=nodemailer.createTransport({
       host: c.host, port: Number(c.port), secure: Boolean(c.secure),
       auth: c.user ? { user: c.user, pass: c.password } : undefined,

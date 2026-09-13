@@ -8,7 +8,7 @@ This is the logical V1 model. Exact column types may be finalized during impleme
 
 - id
 - name
-- email
+- email unique
 - password_hash
 - created_at
 - updated_at
@@ -17,7 +17,7 @@ This is the logical V1 model. Exact column types may be finalized during impleme
 
 - id
 - name
-- slug
+- slug unique
 - status
 - created_at
 - updated_at
@@ -61,7 +61,7 @@ Unique:
 - created_at
 - updated_at
 
-Use a network-aware database type if supported, e.g. PostgreSQL `inet`/`cidr`.
+- cidr `TEXT` (validasi app-side; rekomendasi `inet/cidr` belum dipakai)
 
 ## provider_connections
 
@@ -100,7 +100,8 @@ Use a network-aware database type if supported, e.g. PostgreSQL `inet`/`cidr`.
 - metadata_json nullable
 - created_at
 
-Recommended unique constraint:
+Recommended unique constraint (code pakai full `UNIQUE`, bukan partial — JWT path insert `NULL/NULL`, replay check hanya machine path):
+
 - `(tenant_id, api_key_id, idempotency_key)` where idempotency_key is not null
 
 ## deliveries
@@ -108,8 +109,8 @@ Recommended unique constraint:
 - id
 - tenant_id
 - message_id
-- provider_connection_id
-- destination_id
+- provider_connection_id (`RESTRICT` — blokir hard delete conn dipakai)
+- destination_id (`RESTRICT` — blokir hard delete dst dipakai)
 - status
 - attempt_count
 - next_retry_at nullable
@@ -129,7 +130,8 @@ Recommended unique constraint:
 - started_at
 - finished_at
 - duration_ms
-- result
+- result (`SUCCESS/RETRYABLE/FAILED`)
+- created_at (default now, insert worker)
 - provider_status_code nullable
 - provider_reference nullable
 - error_code nullable
@@ -141,8 +143,8 @@ Recommended unique constraint:
 - id
 - tenant_id
 - name
-- public_identifier
-- secret_hash or encrypted_secret
+- public_identifier unique
+- secret_hash + encrypted_secret (keduanya nullable, query tulis keduanya)
 - signature_mode
 - forwarding_config_json
 - status
@@ -159,9 +161,9 @@ Recommended unique constraint:
 - method
 - safe_headers_json
 - payload_json
-- status
+- status (`received` saja dipakai; `forwarded/failed` ada di DB tapi tak pernah transisi; retry tulis `webhook_forward_attempts`)
 - received_at
-- processed_at nullable
+- processed_at nullable (tak pernah diisi)
 - created_at
 
 ## webhook_forward_attempts
@@ -191,6 +193,15 @@ Recommended unique constraint:
 - response_body_json nullable (not stored for privacy — null)
 - duration_ms nullable
 - created_at
+
+## audit_logs (dipakai berat, belum didokumen sebelum ini)
+
+- id, tenant_id, actor_type, actor_id, action, target_type, target_id, metadata_json, created_at
+- actions: `api_key.blocked_ip, webhook.blocked_ip, api_key.*, provider.*, webhook.*`
+
+Infra: `schema_migrations`, `m00_healthcheck` ada di `001_m00_baseline.sql`, bukan domain.
+
+Indexes: kode punya banyak index (`002`, `003`, `004`); docs hanya list UNIQUE. Lihat migrasi sebagai sumber. `api_keys.key_prefix` index non-unique + `LIMIT 1` — tabrakan mungkin. Validasi `scopes/allowed_*/expires_at` app-only, tanpa CHECK DB.
 
 ## Tenant Boundary Rule
 

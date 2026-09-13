@@ -5,12 +5,10 @@ Related: [documentation index](../../README.md)
 ## 1. Core Modules
 
 ```text
-src/modules/
+apps/api/src/modules/
 ├── auth/
-├── users/
 ├── tenants/
-├── api-keys/
-├── access-control/
+├── api-keys/ (+ ip.ts, rateLimit.ts, ssrf.ts di lib/ — belum access-control/)
 ├── providers/
 │   ├── core/
 │   ├── telegram/
@@ -22,8 +20,10 @@ src/modules/
 ├── delivery/
 ├── webhooks/
 ├── observability/
-└── settings/
+├── inbound/
 ```
+
+`users/, access-control/, settings/` belum ada sebagai modul (tersebar). `inbound/` tambahan di luar peta awal.
 
 ## 2. Ownership Rules
 

@@ -4,21 +4,27 @@ Related: [documentation index](../../README.md)
 
 ## 1. Navigation
 
+Aktual (`App.tsx`):
+
 ```text
 Overview
 Providers
 Destinations
 Messages
+Deliveries (/deliveries)
 Webhooks
 Logs
-Settings
+API Keys (/api-keys, bukan /settings)
+IP Access (/ip-access, top-level tambahan)
+Inbound (/inbound, tambahan)
+Docs (/docs, tambahan)
 ```
 
-Tenant switcher should be persistent in the main layout.
+Settings direname API Keys; Tenant/Members/General belum ada UI (API members ada, nol caller).
 
 ## 2. Overview
 
-Cards:
+Cards (spec):
 
 - Messages today
 - Delivered
@@ -28,6 +34,8 @@ Cards:
 - Webhooks received
 
 Also show recent failures.
+
+Aktual: abaikan `recent_failures`, sparks/bars/breakdown hardcoded, kartu Queued/Active providers hilang.
 
 ## 3. Providers
 
@@ -95,7 +103,7 @@ Webhook endpoint list:
 - security mode
 - IP allowlist count
 
-Webhook event detail:
+Webhook event detail (drawer: `payload_json` ter-redact + forward attempts + `request_id,source_ip,method,safe_headers_json,status,received_at`):
 
 - request ID
 - time
@@ -108,13 +116,15 @@ Webhook event detail:
 
 ## 8. Settings
 
-Subsections:
+Spec subsections:
 
 - Tenant
 - Members
 - API Keys
 - IP Access Rules
 - General
+
+Aktual: hanya API Keys. Members API ada tanpa UI.
 
 API key detail:
 

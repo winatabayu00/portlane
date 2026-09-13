@@ -86,15 +86,9 @@ Do not persist the raw secret if not required.
 
 ## 5. Provider Credentials
 
-Credentials that must be reused (Telegram token, SMTP password, Discord credentials) require reversible encryption at rest.
+Credentials that must be reused (Telegram token, SMTP password, Discord credentials) require reversible encryption at rest (AES-GCM).
 
-Requirements:
-
-- application encryption key outside database
-- authenticated encryption
-- key rotation strategy
-- no secret logging
-- redacted UI responses
+Aktual: key `APP_ENCRYPTION_KEY || JWT_SECRET`, default `dev-jwt-secret-change-me`. Tanpa rotation path. `sha256(s)` fallback. Rotation tercatat audit tapi manual.
 
 ## 6. Tenant Isolation
 
@@ -106,12 +100,12 @@ Cross-tenant IDs must produce a safe `404` or authorization failure.
 
 Rate limits should exist for:
 
-- API keys
-- login/auth endpoints
-- public webhook endpoints
-- provider test endpoints
+- API keys (`ak:{id}` 60/min machine, 60/min dashboard send)
+- login/auth endpoints (10/min per IP)
+- public webhook endpoints (120/min)
+- provider test endpoints (10/min)
 
-Provider-specific rate limits should also be respected by workers.
+Aktual: in-memory `Map` (`rateLimit.ts`), bukan Redis. Multi-instance bypass. `ponytail:` upgrade Redis sliding window. Worker abaikan `Retry-After`, pakai backoff tetap.
 
 ## 8. Logging
 
@@ -126,34 +120,28 @@ Never log:
 
 Sensitive webhook headers/payload fields should be maskable.
 
+Aktual: `inbound_logs` simpan body ter-redact (`redactCredentials`), header via `redactHeaders` (auth/cookie/secret/token/password/signature/api-key). Logger `REDACTED_PATHS` + preview `redactCredentials`. `GET webhook-events` list tanpa `payload_json`; `GET :id` return `payload_json` + header ter-redact. Tanpa max header config (hanya `bodyLimit` 1MB; hook 100KB → `413`).
+
 ## 9. Request Limits
 
 Set:
 
-- maximum request body size
-- maximum header size where supported
-- timeout limits
-- outbound webhook response-size limits
+- maximum request body size (1MB global, 100KB hook)
+- maximum header size where supported (belum ada)
+- timeout limits (forward 1-15s clamp, sync 8s blokir worker)
+- outbound webhook response-size limits (`readCapped` streaming cap 4096B)
 
 ## 10. SSRF Protection
 
 Generic outbound webhooks introduce SSRF risk.
 
-At minimum, define a security policy before production use.
-
-Recommended protections:
-
-- block loopback/link-local/metadata endpoints by default
-- resolve and validate destination addresses
-- optionally disallow private networks unless tenant explicitly opts in
-- apply connect/read timeouts
-- restrict redirects or revalidate redirect targets
-
-This is mandatory to address before exposing generic webhook destinations publicly.
+Aktual: `validateOutboundUrl` di webhook provider (send/test), koneksi webhook/discord create+update, forward hook create+update+retry. Discord send/test validasi URL. SMTP host validasi via `validateSmtpHost` (send/test/create/update). Redirect `manual`, 3xx diblokir total tanpa revalidate-follow. TOCTOU resolve-then-fetch inherent (best-effort).
 
 ## 11. Secret Verification
 
 Webhook IP allowlisting is additional protection, not a replacement for signatures or secrets.
+
+Aktual: HMAC atas raw bytes (`req.rawBody`, fallback `JSON.stringify`) via `verifyHmacSha256` + wajib prefix `sha256=`. Header: `x-webhook-signature`/`x-signature` atau `x-webhook-secret`/`Authorization`. Mode `none` + `secret_hash` tetap enforce secret.
 
 ## 12. Audit-Relevant Events
 

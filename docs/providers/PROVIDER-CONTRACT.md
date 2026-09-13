@@ -30,13 +30,9 @@ interface ProviderAdapter {
 
 ## 2. ProviderError
 
-Normalized provider errors should include:
+Aktual (`core/types.ts`): `code, message, retryable, statusCode, raw`. Docs lama sebut `provider_status_code/safe_details` — map ke `statusCode/raw`.
 
-- code
-- message
-- retryable
-- provider_status_code if available
-- safe_details if available
+Telegram `TIMEOUT/INVALID_CREDENTIALS/INVALID_DESTINATION`; Discord/SMTP mirip; docs tanpa tabel mapping. Discord klaim `EMBEDS` tapi kirim plain `content`; bot mode `NOT_IMPLEMENTED`. Telegram passthrough `parse_mode` apa pun. SMTP `secure` boolean vs docs mode TLS. Webhook outbound tanpa signing.
 
 ## 3. Rules
 

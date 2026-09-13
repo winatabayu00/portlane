@@ -20,15 +20,20 @@ import { messagingRoutes } from "./modules/messaging/routes.js";
 import { webhookRoutes } from "./modules/webhooks/routes.js";
 import { observabilityRoutes } from "./modules/observability/routes.js";
 import { inboundRoutes, resolveInboundTenantId } from "./modules/inbound/routes.js";
+import { redactCredentials, redactHeaders } from "./lib/mask.js";
 
 const REDACTED_PATHS = [
   "req.headers.authorization",
   "req.headers.cookie",
   "req.headers['x-api-key']",
+  "req.headers['x-webhook-signature']",
+  "req.headers['x-signature']",
+  "req.headers['x-webhook-secret']",
   "*.password",
   "*.secret",
   "*.token",
   "*botToken*",
+  "*webhookUrl*",
 ];
 
 export function newRequestId(): string {
@@ -57,8 +62,9 @@ export async function buildApp(config: AppConfig = loadConfig()): Promise<Fastif
     bodyLimit: 1_048_576,
   });
   // allow POST with empty body + application/json (e.g. /provider-connections/:id/test) → {} instead of 500
-  app.addContentTypeParser("application/json", { parseAs: "string" }, ( _req, body, done) => {
-    if (body === "" || body == null) return done(null, {});
+  app.addContentTypeParser("application/json", { parseAs: "string" }, (req, body, done) => {
+    if (body === "" || body == null) { (req as any).rawBody = ""; return done(null, {}); }
+    (req as any).rawBody = body as string;
     try { done(null, JSON.parse(body as string)); } catch (e) { done(e as Error, undefined); }
   });
 
@@ -69,11 +75,11 @@ export async function buildApp(config: AppConfig = loadConfig()): Promise<Fastif
     (req as any).correlationId = cid;
     (req as any)._startAt = Date.now();
     if (req.url !== "/health" && req.url !== "/ready") {
-      // body preview truncated — never log secrets (redacted by logger)
+      // body preview truncated + redacted — never log secrets
       let preview = "";
       try {
         if (req.body && typeof req.body === "object" && Object.keys(req.body as object).length) {
-          const s = JSON.stringify(req.body);
+          const s = JSON.stringify(redactCredentials(req.body));
           preview = ` ${s.slice(0, 500)}${s.length > 500 ? "..." : ""}`;
         }
       } catch {}
@@ -88,14 +94,11 @@ export async function buildApp(config: AppConfig = loadConfig()): Promise<Fastif
       req.log.info({ correlationId: cid, method: req.method, path: req.url, statusCode: reply.statusCode, duration: `${dur}ms` }, `◀ ${req.method} ${req.url} — ${reply.statusCode} — ${dur}ms`);
     }
     
-    // Log inbound request-response to database
+    // Log inbound request-response to database (headers/body redacted)
     if (req.url.startsWith("/api/v1/")) {
       const pool = dbPool(config);
       const tenantId = (req as any).tenantId ?? resolveInboundTenantId(req.url);
-      
-      const requestHeaders = { ...req.headers };
-      delete requestHeaders.authorization;
-      delete requestHeaders.cookie;
+      const requestHeaders = redactHeaders({ ...(req.headers as Record<string, string>) });
       
       const responseHeaders = { ...reply.getHeaders() };
       
@@ -115,7 +118,7 @@ export async function buildApp(config: AppConfig = loadConfig()): Promise<Fastif
             req.ip ?? "127.0.0.1",
             req.headers["user-agent"],
             JSON.stringify(requestHeaders),
-            req.body ? JSON.stringify(req.body) : null,
+            req.body ? JSON.stringify(redactCredentials(req.body)) : null,
             reply.statusCode,
             JSON.stringify(responseHeaders),
             null, // response_body_json not stored for privacy

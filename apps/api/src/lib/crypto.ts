@@ -47,6 +47,11 @@ export function timingSafeEqual(a: string, b: string): boolean {
   return crypto.timingSafeEqual(ab, bb);
 }
 
+export function verifyHmacSha256(raw: string, sig: string, secret: string): boolean {
+  const expected = "sha256=" + crypto.createHmac("sha256", secret).update(raw).digest("hex");
+  return timingSafeEqual(sig, expected);
+}
+
 export function randomSecret(bytes = 32): string {
   return crypto.randomBytes(bytes).toString("hex");
 }

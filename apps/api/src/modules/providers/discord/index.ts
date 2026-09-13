@@ -1,5 +1,6 @@
 import type { ProviderAdapter } from "../core/types.js";
 import { ProviderError } from "../core/types.js";
+import { validateOutboundUrl } from "../../../lib/ssrf.js";
 export const discordProvider: ProviderAdapter = {
   key:"discord",
   capabilities:["SEND_MESSAGE","EMBEDS"],
@@ -13,8 +14,10 @@ export const discordProvider: ProviderAdapter = {
     const creds=connection.credentials as any;
     const content = message.subject ? `**${message.subject}**\n${message.body}` : message.body;
     if(creds.webhookUrl){
+      await validateOutboundUrl(String(creds.webhookUrl));
       let res:Response;
-      try{ res=await fetch(creds.webhookUrl,{ method:"POST", headers:{ "content-type":"application/json" }, body: JSON.stringify({ content }), signal: AbortSignal.timeout(10000)});}catch(e:any){ throw new ProviderError("TIMEOUT", e.message, true);}
+      try{ res=await fetch(creds.webhookUrl,{ method:"POST", headers:{ "content-type":"application/json" }, body: JSON.stringify({ content }), signal: AbortSignal.timeout(10000), redirect:"manual" });}catch(e:any){ throw new ProviderError("TIMEOUT", e.message, true);}
+      if(res.status>=300 && res.status<400) throw new ProviderError("PROVIDER_ERROR","redirect blocked", false, res.status);
       if(!res.ok){
         const retryable=res.status===429||res.status>=500;
         throw new ProviderError(res.status===429?"RATE_LIMITED":res.status>=500?"PROVIDER_ERROR":"INVALID_DESTINATION", `Discord ${res.status}`, retryable, res.status);
@@ -27,6 +30,7 @@ export const discordProvider: ProviderAdapter = {
     const anyCreds=creds as any;
     if(anyCreds.webhookUrl){
       try{
+        await validateOutboundUrl(String(anyCreds.webhookUrl));
         const u=new URL(anyCreds.webhookUrl);
         if(!u.hostname.includes("discord")) return { ok:false, message:"not a discord webhook" };
         return { ok:true, message:"webhook url looks valid (no network test)" };

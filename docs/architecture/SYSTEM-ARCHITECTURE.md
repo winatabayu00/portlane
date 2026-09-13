@@ -53,7 +53,7 @@ Responsible for authentication, request validation, authorization, persistence e
 System of record for users, tenants, provider metadata, destinations, messages, deliveries, delivery attempts, API keys, webhook events, and security policies.
 
 ### Redis
-Used for queueing, retry scheduling, rate limit counters, and short-lived coordination.
+Used for queueing, retry scheduling, and short-lived coordination. Rate limit aktual in-memory `Map`, bukan Redis (`ponytail:` upgrade Redis sliding window).
 
 ### Worker
 Consumes delivery jobs and invokes provider adapters.
@@ -122,9 +122,7 @@ Secret/Signature Verification
   ↓
 Persist Event
   ↓
-Forward Job
-  ↓
-Configured Destination
+Sync Forward (8s, tanpa queue; ponytail: BullMQ portlane-webhook-forwards)
   ↓
 Persist Result
 ```
@@ -143,7 +141,7 @@ For high-risk resources, direct `tenant_id` is preferred for auditing and filter
 Scale in this order:
 
 1. More worker processes.
-2. Dedicated queue names by provider.
+2. Dedicated queue names by provider (belum — single `portlane-deliveries`).
 3. Provider-specific concurrency limits.
 4. Read replicas / partitioning if required.
 5. Only then consider extracting heavy provider workers.

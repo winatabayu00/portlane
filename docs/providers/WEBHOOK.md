@@ -9,14 +9,14 @@ Related: [documentation index](../../README.md)
 
 ## Connection / Destination Config
 
-Possible fields:
+Aktual:
 
-- URL
-- HTTP method
-- headers
-- authentication mode
-- timeout
-- secret/signing configuration
+- URL (`validateOutboundUrl` di send/test + create/update koneksi + forward hook; DNS resolve check; redirect `manual`, 3xx diblokir)
+- HTTP method (GET tanpa body)
+- headers (forward allowlist `/^[a-z0-9-]+$/i`, lowercase)
+- timeout clamp 1000-15000ms (`AbortSignal.timeout`)
+- response dibaca via `readCapped` streaming cap 4096B
+- tanpa auth mode/signing outbound
 
 ## Delivery
 

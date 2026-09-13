@@ -6,7 +6,7 @@ import { requireJwtUser, requireTenantMember } from "../auth/routes.js";
 import { encryptCreds, decryptCreds } from "./core/crypto.js";
 import { getProvider, listProviders } from "./core/registry.js";
 import { checkRateLimit } from "../../lib/rateLimit.js";
-import { validateOutboundUrl } from "../../lib/ssrf.js";
+import { validateOutboundUrl, validateSmtpHost } from "../../lib/ssrf.js";
 import { telegramProvider } from "./telegram/index.js";
 import { discordProvider } from "./discord/index.js";
 import { smtpProvider } from "./smtp/index.js";
@@ -53,6 +53,13 @@ app.post("/api/v1/tenants/:tenantId/provider-connections", async (req, reply) =>
       const url = String((body.config as Record<string,unknown>).url ?? (body.credentials as any).url ?? "");
       if (url) try { await validateOutboundUrl(url); } catch(e: unknown){ return reply.status(422).send(errorBody("VALIDATION_ERROR", `Webhook URL blocked by SSRF policy: ${String((e as Error).message)}`, String(req.id))); }
     }
+    if (body.provider_key === "discord") {
+      const url = String((body.credentials as any).webhookUrl ?? "");
+      if (url) try { await validateOutboundUrl(url); } catch(e: unknown){ return reply.status(422).send(errorBody("VALIDATION_ERROR", `Discord URL blocked by SSRF policy: ${String((e as Error).message)}`, String(req.id))); }
+    }
+    if (body.provider_key === "smtp") {
+      try { await validateSmtpHost(String((body.credentials as any).host ?? "")); } catch(e: unknown){ return reply.status(422).send(errorBody("VALIDATION_ERROR", `SMTP host blocked by SSRF policy: ${String((e as Error).message)}`, String(req.id))); }
+    }
     const enc = encryptCreds(body.credentials as any, config.APP_ENCRYPTION_KEY || config.JWT_SECRET);
     const connId = id("conn");
     await pool.query("INSERT INTO provider_connections (id,tenant_id,provider_key,name,encrypted_credentials,config_json) VALUES ($1,$2,$3,$4,$5,$6)", [connId, tenantId, body.provider_key, body.name, enc, JSON.stringify(body.config)]);
@@ -70,12 +77,20 @@ app.post("/api/v1/tenants/:tenantId/provider-connections", async (req, reply) =>
     const body = z.object({ name: z.string().min(1).optional(), config: z.record(z.unknown()).optional(), credentials: z.record(z.unknown()).optional(), status: z.enum(["active","disabled"]).optional() }).parse(req.body);
     const cur = await pool.query("SELECT * FROM provider_connections WHERE id=$1 AND tenant_id=$2",[connId, tenantId]);
     if(!cur.rows.length) return reply.status(404).send(errorBody("NOT_FOUND","Connection not found",String(req.id)));
-    // SSRF check on webhook URL change (config.url or credentials.url)
+    // SSRF check on webhook/discord URL or smtp host change
     if (cur.rows[0].provider_key === "webhook" && (body.config || body.credentials)) {
       const nextConfig = (body.config ?? cur.rows[0].config_json) as Record<string,unknown>;
       const nextCreds = (body.credentials ?? {}) as Record<string,unknown>;
       const url = String(nextConfig.url ?? nextCreds.url ?? (cur.rows[0].config_json as Record<string,unknown>).url ?? "");
       if (url) try { await validateOutboundUrl(url); } catch(e: unknown){ return reply.status(422).send(errorBody("VALIDATION_ERROR", `Webhook URL blocked by SSRF policy: ${String((e as Error).message)}`, String(req.id))); }
+    }
+    if (cur.rows[0].provider_key === "discord" && body.credentials) {
+      const url = String((body.credentials as Record<string,unknown>).webhookUrl ?? "");
+      if (url) try { await validateOutboundUrl(url); } catch(e: unknown){ return reply.status(422).send(errorBody("VALIDATION_ERROR", `Discord URL blocked by SSRF policy: ${String((e as Error).message)}`, String(req.id))); }
+    }
+    if (cur.rows[0].provider_key === "smtp" && body.credentials) {
+      const host = String((body.credentials as Record<string,unknown>).host ?? "");
+      if (host) try { await validateSmtpHost(host); } catch(e: unknown){ return reply.status(422).send(errorBody("VALIDATION_ERROR", `SMTP host blocked by SSRF policy: ${String((e as Error).message)}`, String(req.id))); }
     }
     const updates: string[]=[]; const vals:any[]=[]; let idx=1;
     if(body.name){ updates.push(`name=$${idx++}`); vals.push(body.name); }
