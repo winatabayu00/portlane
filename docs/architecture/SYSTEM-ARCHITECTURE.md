@@ -53,7 +53,7 @@ Responsible for authentication, request validation, authorization, persistence e
 System of record for users, tenants, provider metadata, destinations, messages, deliveries, delivery attempts, API keys, webhook events, and security policies.
 
 ### Redis
-Used for queueing, retry scheduling, and short-lived coordination. Rate limit aktual in-memory `Map`, bukan Redis (`ponytail:` upgrade Redis sliding window).
+Used for queueing, retry scheduling, short-lived coordination, and shared rate-limit counters (`rl:*` fixed-window INCR+PEXPIRE; memory fallback fail-open when Redis down).
 
 ### Worker
 Consumes delivery jobs and invokes provider adapters.
@@ -122,7 +122,7 @@ Secret/Signature Verification
   ↓
 Persist Event
   ↓
-Sync Forward (8s, tanpa queue; ponytail: BullMQ portlane-webhook-forwards)
+Async Forward (BullMQ `portlane-webhook-forwards`, worker `registerForwardWorker`; hook persist event lalu enqueue, queue down → FAILED attempt tercatat tapi hook tetap 200)
   ↓
 Persist Result
 ```

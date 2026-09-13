@@ -10,7 +10,7 @@ Related: [documentation index](../../README.md)
 ## Connection Config
 
 - host (`validateSmtpHost`: blocklist loopback/private/link-local/metadata + DNS resolve check)
-- port (tanpa blocklist — gap)
+- port (`validateSmtpPort`: blokir privileged non-mail <1024 kecuali 25/465/587; 2525+ lolos)
 - username
 - password
 - `secure` boolean (bukan mode TLS/STARTTLS eksplisit)

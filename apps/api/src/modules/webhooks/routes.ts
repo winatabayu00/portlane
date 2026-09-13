@@ -5,9 +5,11 @@ import { dbPool } from "../../db.js";
 import { id } from "../../lib/ids.js";
 import { requireJwtUser, requireTenantMember } from "../auth/routes.js";
 import { checkRateLimit } from "../../lib/rateLimit.js";
+import { redisClient } from "../../redis.js";
 import { isIpAllowed, parseCidrOrThrow } from "../../lib/ip.js";
 import { redactCredentials, redactHeaders } from "../../lib/mask.js";
 import { readCapped, validateOutboundUrl } from "../../lib/ssrf.js";
+import { enqueueForward } from "./forward.js";
 import type { AppConfig } from "../../config.js";
 import { errorBody } from "../../errors.js";
 import { success } from "../../common/api-response.js";
@@ -184,7 +186,7 @@ export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
       return reply.status(403).send(errorBody("IP_NOT_ALLOWED","Source not allowed.",String(req.id)));
     }
 
-    if (!checkRateLimit(`wh:${endpoint.id}`, 120, 60_000)) return reply.status(429).send(errorBody("RATE_LIMITED","Rate limit exceeded.",String(req.id)));
+    if (!(await checkRateLimit(`wh:${endpoint.id}`, 120, 60_000, redisClient(config)))) return reply.status(429).send(errorBody("RATE_LIMITED","Rate limit exceeded.",String(req.id)));
 
     const rawBody = typeof (req as any).rawBody === "string" && (req as any).rawBody ? (req as any).rawBody as string : JSON.stringify(req.body ?? {});
     if (rawBody.length > 100_000) return reply.status(413).send(errorBody("VALIDATION_ERROR","Payload too large.",String(req.id)));
@@ -206,19 +208,14 @@ export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
 
     const fwd = endpoint.forwarding_config_json as Record<string, unknown>;
     if (fwd.url) {
-      // ponytail: sync forward (blocks ~8s); when >500/min or need backoff, move to BullMQ queue portlane-webhook-forwards
       try {
         await validateOutboundUrl(String(fwd.url));
-        const bodyRaw = JSON.stringify(req.body ?? {});
-        const headers: Record<string,string> = { "content-type":"application/json", "x-portlane-event-id": eventId, "x-portlane-request-id": String(req.id) };
-        const extra = fwd.headers as Record<string,string>|undefined;
-        if (extra && typeof extra === "object") for (const [k,v] of Object.entries(extra)) if (typeof v==="string" && /^[a-z0-9-]+$/i.test(k)) headers[k.toLowerCase()] = v;
-        if (endpoint.encrypted_secret) { try { const s = decrypt(endpoint.encrypted_secret, config.APP_ENCRYPTION_KEY || config.JWT_SECRET); headers["x-portlane-signature"] = "sha256=" + crypto.createHmac("sha256", s).update(bodyRaw).digest("hex"); } catch {} }
-        const timeoutMs = Math.min(15000, Math.max(1000, Number((fwd as any).timeout_ms ?? 8000)));
-        const res = await fetch(String(fwd.url), { method: "POST", headers, body: bodyRaw, signal: AbortSignal.timeout(timeoutMs), redirect: "manual" });
-        if (res.status >= 300 && res.status < 400) { await readCapped(res, 4096).catch(() => ""); throw new Error(`Forward blocked: redirect ${res.status}`); }
-        await readCapped(res, 4096).catch(() => "");
-        await pool.query("INSERT INTO webhook_forward_attempts (id,tenant_id,webhook_event_id,attempt_number,status,response_status) VALUES ($1,$2,$3,$4,$5,$6)", [id("wfa"), endpoint.tenant_id, eventId, 1, res.ok?"SUCCESS":"FAILED", res.status]);
+        try {
+          await enqueueForward(config, eventId);
+        } catch (e: unknown) {
+          // queue down: hook still 200 (event persisted), failure stays visible
+          await pool.query("INSERT INTO webhook_forward_attempts (id,tenant_id,webhook_event_id,attempt_number,status,error_message) VALUES ($1,$2,$3,$4,$5,$6)", [id("wfa"), endpoint.tenant_id, eventId, 1, "FAILED", `enqueue failed: ${String((e as Error).message).slice(0,400)}`]);
+        }
       } catch (e: unknown) {
         await pool.query("INSERT INTO webhook_forward_attempts (id,tenant_id,webhook_event_id,attempt_number,status,error_message) VALUES ($1,$2,$3,$4,$5,$6)", [id("wfa"), endpoint.tenant_id, eventId, 1, "FAILED", String((e as Error).message).slice(0,500)]);
       }

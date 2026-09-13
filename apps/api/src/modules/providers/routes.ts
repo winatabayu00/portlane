@@ -6,7 +6,8 @@ import { requireJwtUser, requireTenantMember } from "../auth/routes.js";
 import { encryptCreds, decryptCreds } from "./core/crypto.js";
 import { getProvider, listProviders } from "./core/registry.js";
 import { checkRateLimit } from "../../lib/rateLimit.js";
-import { validateOutboundUrl, validateSmtpHost } from "../../lib/ssrf.js";
+import { redisClient } from "../../redis.js";
+import { validateOutboundUrl, validateSmtpHost, validateSmtpPort } from "../../lib/ssrf.js";
 import { telegramProvider } from "./telegram/index.js";
 import { discordProvider } from "./discord/index.js";
 import { smtpProvider } from "./smtp/index.js";
@@ -59,6 +60,7 @@ app.post("/api/v1/tenants/:tenantId/provider-connections", async (req, reply) =>
     }
     if (body.provider_key === "smtp") {
       try { await validateSmtpHost(String((body.credentials as any).host ?? "")); } catch(e: unknown){ return reply.status(422).send(errorBody("VALIDATION_ERROR", `SMTP host blocked by SSRF policy: ${String((e as Error).message)}`, String(req.id))); }
+      try { validateSmtpPort((body.credentials as any).port); } catch(e: unknown){ return reply.status(422).send(errorBody("VALIDATION_ERROR", String((e as Error).message), String(req.id))); }
     }
     const enc = encryptCreds(body.credentials as any, config.APP_ENCRYPTION_KEY || config.JWT_SECRET);
     const connId = id("conn");
@@ -91,6 +93,8 @@ app.post("/api/v1/tenants/:tenantId/provider-connections", async (req, reply) =>
     if (cur.rows[0].provider_key === "smtp" && body.credentials) {
       const host = String((body.credentials as Record<string,unknown>).host ?? "");
       if (host) try { await validateSmtpHost(host); } catch(e: unknown){ return reply.status(422).send(errorBody("VALIDATION_ERROR", `SMTP host blocked by SSRF policy: ${String((e as Error).message)}`, String(req.id))); }
+      const port = (body.credentials as Record<string,unknown>).port;
+      if (port !== undefined) try { validateSmtpPort(port); } catch(e: unknown){ return reply.status(422).send(errorBody("VALIDATION_ERROR", String((e as Error).message), String(req.id))); }
     }
     const updates: string[]=[]; const vals:any[]=[]; let idx=1;
     if(body.name){ updates.push(`name=$${idx++}`); vals.push(body.name); }
@@ -118,7 +122,7 @@ app.post("/api/v1/tenants/:tenantId/provider-connections", async (req, reply) =>
 
   app.post("/api/v1/tenants/:tenantId/provider-connections/:connId/test", async (req, reply) => {
     const user = await requireJwtUser(req, reply, config); if(!user) return;
-    if (!checkRateLimit(`provider:test:${user.userId}`, 10, 60_000)) return reply.status(429).send(errorBody("RATE_LIMITED", "Too many requests.", String(req.id)));
+    if (!(await checkRateLimit(`provider:test:${user.userId}`, 10, 60_000, redisClient(config)))) return reply.status(429).send(errorBody("RATE_LIMITED", "Too many requests.", String(req.id)));
     const { tenantId, connId } = req.params as any;
     if(!await requireTenantMember(pool, user.userId, tenantId, reply, req)) return;
     const cur = await pool.query("SELECT * FROM provider_connections WHERE id=$1 AND tenant_id=$2",[connId, tenantId]);

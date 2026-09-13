@@ -105,7 +105,7 @@ Rate limits should exist for:
 - public webhook endpoints (120/min)
 - provider test endpoints (10/min)
 
-Aktual: in-memory `Map` (`rateLimit.ts`), bukan Redis. Multi-instance bypass. `ponytail:` upgrade Redis sliding window. Worker abaikan `Retry-After`, pakai backoff tetap.
+Aktual: Redis fixed-window `rl:{key}` INCR+PEXPIRE (shared multi-instance), fallback memory fail-open bila Redis down. `ponytail:` fixed window, bukan sliding; upgrade Lua sliding window bila abuse.
 
 ## 8. Logging
 
@@ -128,7 +128,7 @@ Set:
 
 - maximum request body size (1MB global, 100KB hook)
 - maximum header size where supported (belum ada)
-- timeout limits (forward 1-15s clamp, sync 8s blokir worker)
+- timeout limits (forward 1-15s clamp, async via `portlane-webhook-forwards`; queue down → FAILED attempt, hook tetap 200)
 - outbound webhook response-size limits (`readCapped` streaming cap 4096B)
 
 ## 10. SSRF Protection

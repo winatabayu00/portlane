@@ -6,6 +6,7 @@ import { requireJwtUser, requireTenantMember } from "../auth/routes.js";
 import { resolveApiKey, hasScope, isExpired } from "../api-keys/routes.js";
 import { isIpAllowed } from "../../lib/ip.js";
 import { checkRateLimit } from "../../lib/rateLimit.js";
+import { redisClient } from "../../redis.js";
 import type { AppConfig } from "../../config.js";
 import { errorBody } from "../../errors.js";
 import { success } from "../../common/api-response.js";
@@ -52,7 +53,7 @@ export async function messagingRoutes(app:FastifyInstance, config:AppConfig){
         return reply.status(403).send(errorBody("IP_NOT_ALLOWED","Request source is not allowed for this API key.",String(req.id)));
       }
     }
-    if(!checkRateLimit(`ak:${ak.id}`, 60, 60_000)) return reply.status(429).send(errorBody("RATE_LIMITED","Rate limit exceeded.",String(req.id)));
+    if(!(await checkRateLimit(`ak:${ak.id}`, 60, 60_000, redisClient(config)))) return reply.status(429).send(errorBody("RATE_LIMITED","Rate limit exceeded.",String(req.id)));
 
     const body = z.object({
       destinations: z.array(z.string().min(1)).min(1).max(50),
@@ -111,7 +112,7 @@ export async function messagingRoutes(app:FastifyInstance, config:AppConfig){
     const user=await requireJwtUser(req, reply, config); if(!user) return;
     const { tenantId } = req.params as any;
     if(!await requireTenantMember(pool, user.userId, tenantId, reply, req)) return;
-    if(!checkRateLimit(`msg:tenant:${tenantId}:${user.userId}`, 60, 60_000)) return reply.status(429).send(errorBody("RATE_LIMITED","Rate limit exceeded.",String(req.id)));
+    if(!(await checkRateLimit(`msg:tenant:${tenantId}:${user.userId}`, 60, 60_000, redisClient(config)))) return reply.status(429).send(errorBody("RATE_LIMITED","Rate limit exceeded.",String(req.id)));
     const body = z.object({
       destinations: z.array(z.string().min(1)).min(1).max(50),
       message: z.object({ subject: z.string().max(500).optional(), body: z.string().min(1).max(20000), metadata: z.record(z.unknown()).optional() }),

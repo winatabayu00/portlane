@@ -6,6 +6,7 @@ import { id } from "../../lib/ids.js";
 import { slugify } from "../../lib/slug.js";
 import { signJwt, verifyJwt } from "../../lib/auth.js";
 import { checkRateLimit } from "../../lib/rateLimit.js";
+import { redisClient } from "../../redis.js";
 import type { AppConfig } from "../../config.js";
 import { errorBody } from "../../errors.js";
 import { success } from "../../common/api-response.js";
@@ -15,7 +16,7 @@ export async function authRoutes(app: FastifyInstance, config: AppConfig) {
   const pool = dbPool(config);
 
   app.post("/api/v1/auth/register", async (req, reply) => {
-    if (!checkRateLimit(`auth:register:${req.ip}`, 10, 60_000)) return reply.status(429).send(errorBody("RATE_LIMITED", "Too many requests.", String(req.id)));
+    if (!(await checkRateLimit(`auth:register:${req.ip}`, 10, 60_000, redisClient(config)))) return reply.status(429).send(errorBody("RATE_LIMITED", "Too many requests.", String(req.id)));
     const body = z.object({ name: z.string().min(1), email: z.string().email(), password: z.string().min(6) }).parse(req.body);
     const email = body.email.toLowerCase().trim();
     const exists = await pool.query("SELECT id FROM users WHERE email=$1", [email]);
@@ -33,7 +34,7 @@ export async function authRoutes(app: FastifyInstance, config: AppConfig) {
   });
 
   app.post("/api/v1/auth/login", async (req, reply) => {
-    if (!checkRateLimit(`auth:login:${req.ip}`, 10, 60_000)) return reply.status(429).send(errorBody("RATE_LIMITED", "Too many requests.", String(req.id)));
+    if (!(await checkRateLimit(`auth:login:${req.ip}`, 10, 60_000, redisClient(config)))) return reply.status(429).send(errorBody("RATE_LIMITED", "Too many requests.", String(req.id)));
     const body = z.object({ email: z.string().email(), password: z.string().min(1) }).parse(req.body);
     const email = body.email.toLowerCase().trim();
     const r = await pool.query("SELECT id,name,email,password_hash FROM users WHERE email=$1", [email]);

@@ -74,3 +74,11 @@ export async function validateSmtpHost(host: string): Promise<void> {
   if (!host || typeof host !== "string") throw new Error("SMTP host required");
   await assertSafeHost(host, host);
 }
+
+// ponytail: range + privileged-port block only; upgrade to full allowlist [25,465,587,2525,2587] when abuse observed.
+const SMTP_PRIVILEGED_ALLOW = new Set([25, 465, 587]);
+export function validateSmtpPort(port: unknown): void {
+  const n = typeof port === "string" && port.trim() !== "" ? Number(port) : (port as number);
+  if (typeof n !== "number" || !Number.isInteger(n) || n < 1 || n > 65535) throw new Error(`Invalid SMTP port: ${String(port)}`);
+  if (n < 1024 && !SMTP_PRIVILEGED_ALLOW.has(n)) throw new Error(`SMTP port ${n} blocked (privileged non-mail port)`);
+}
