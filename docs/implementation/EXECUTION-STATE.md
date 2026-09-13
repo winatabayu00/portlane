@@ -25,8 +25,10 @@ M11 No5 Create destination: PASS 2026-09-13 — webhook dst 201 dst_3af59914a4d3
 M11 No6 Submit broadcast: PASS 2026-09-13 — 1 msg msg_19c7bddcf6ce46f5 fan-out 2 QUEUED deliveries; replay idempotency key return 200 id sama, tanpa duplikat.
 M11 No7 Process successful delivery: PASS 2026-09-13 — dlv_6cba7049806641f5 QUEUED→PROCESSING→DELIVERED attempt 1, provider 200, delivered_at set. Fix: worker.ts register 4 provider (registry kosong sebabkan NOT_FOUND massal); migrasi 004_inbound_logs (002 sudah applied sebelum tabel ada).
 M11 No8 Process retryable failure: PASS 2026-09-13 — dlv_c0163dc47b64485a vs https://httpbin.org/status/500: 3 attempts semua RETRYABLE provider 500 PROVIDER_ERROR, status RETRYING + next_retry_at set (backoff sentral worker).
+M11 No9 Reach dead state: PASS 2026-09-13 — dlv_c0163dc47b64485a 5 attempts (4x RETRYABLE, ke-5 FAILED), status DEAD, next_retry_at null, last_error PROVIDER_ERROR. Backoff habis [0,5s,30s,120s,600s].
+M11 No10 Manual retry: PASS 2026-09-13 — POST /tenants/ten_4dcb9b6cd3fd47cc/deliveries/dlv_c0163dc47b64485a/retry kembalikan DEAD→QUEUED; conn arah ulang ke https://httpbin.org/post; attempt 6 SUCCESS 200 DELIVERED; 5 riwayat lama utuh.
 
-Last update: 2026-09-13 — M11 No1-No8 verified (tambah retryable failure E2E PASS)
+Last update: 2026-09-13 — M11 No1-No10 verified (tambah dead + manual retry E2E PASS)
 Infra: no Docker, mini-server Postgres/Redis via DATABASE_URL/REDIS_URL, trustProxy false default
 
 M10 verification: typecheck PASS, lint PASS, tests 9/9 PASS, build PASS (api + web)
