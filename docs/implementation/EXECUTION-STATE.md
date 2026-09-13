@@ -16,9 +16,10 @@ M08: PASS — webhook endpoints, HMAC/bearer secret, IP allowlist, event persist
 M09: PASS — dashboard (Overview/Providers/Destinations/Messages/Deliveries/Webhooks/Logs/Settings)
 M10: PASS — request limits (bodyLimit 1MB + payload 100k), log masking (pino redact + mask.ts), SSRF defense (BLOCKED_RANGES + DNS resolve), rate limits (api-key 60/min, webhook 120/min, auth 10/min, provider test 10/min), credential encryption at rest + rotation audit, security audit_logs (api_key/provider/webhook/ip_allowlist/blocked_ip/secret_rotated)
 
-M11: PENDING — E2E verification (13 flows) + V1 release
+M11: IN PROGRESS — E2E verification (13 flows) + V1 release
+M11 No1 Create tenant: PASS 2026-09-13 — register auto-creates personal tenant + OWNER membership; POST /api/v1/tenants creates second tenant; GET /api/v1/tenants lists both; envelope rc 2001/2000.
 
-Last update: 2026-09-12 — M10 Security Hardening closed (auth/provider rate limits, SSRF forwarding validation, encrypted webhook secret, blocked-IP audit, ip-allowlist audit, provider credential rotation audit)
+Last update: 2026-09-13 — M11 No1 verified (create tenant E2E PASS)
 Infra: no Docker, mini-server Postgres/Redis via DATABASE_URL/REDIS_URL, trustProxy false default
 
 M10 verification: typecheck PASS, lint PASS, tests 9/9 PASS, build PASS (api + web)
