@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main]
 
+# Push baru membatalkan CI lama yang belum selesai.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   checks:
     name: lint / typecheck / test / build

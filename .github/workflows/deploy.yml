@@ -5,10 +5,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Solo prod host: deploy harus jalan sampai selesai, jangan cancel.
+# Push baru membatalkan deploy yang masih antre/berjalan — yang
+# di-deploy selalu kode terbaru (tiap run pull ulang origin/main).
 concurrency:
   group: deploy-portlane-prod
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   deploy:
