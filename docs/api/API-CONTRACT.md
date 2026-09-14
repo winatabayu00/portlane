@@ -230,6 +230,9 @@ Semua tenant-scoped: `/tenants/:tenantId/webhook-endpoints...`.
 ### POST /tenants/:tenantId/webhook-endpoints (return `_oneTimeSecret` sekali)
 ### PATCH /tenants/:tenantId/webhook-endpoints/:id
 ### DELETE /tenants/:tenantId/webhook-endpoints/:id (`204`)
+### GET /tenants/:tenantId/webhooks/public-status
+
+Public inbound readiness untuk UI: return `{public_base_url, ready}` dari `PORTLANE_PUBLIC_BASE_URL` (tanpa secret). `ready=false` = Telegram/external belum bisa callback ke sini.
 
 ### GET /tenants/:tenantId/webhook-events
 ### GET /tenants/:tenantId/webhook-events/:id (return `request_id,source_ip,method,safe_headers_json,status,received_at`)

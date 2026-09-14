@@ -9,12 +9,14 @@ export default function Webhooks({ tenantId }: { tenantId: string }) {
   const [selectedEvent, setSelectedEvent] = useState<any | null>(null); const [eventAttempts, setEventAttempts] = useState<any[]>([]); const [msg, setMsg] = useState<string | null>(null);
   const [page, setPage] = useState(1); const [total, setTotal] = useState(0);
   const [ipFor, setIpFor] = useState<string | null>(null); const [ipList, setIpList] = useState<any[]>([]); const [ipForm, setIpForm] = useState({ cidr: "", description: "" });
+  const [pub, setPub] = useState<{ public_base_url: string | null; ready: boolean } | null>(null);
 
   const reload = useCallback(() => { apiFetch(`/api/v1/tenants/${tenantId}/webhook-endpoints`).then(j => setEps(j.data)); }, [tenantId]);
   const reloadEvents = useCallback(() => {
     apiFetch(`/api/v1/tenants/${tenantId}/webhook-events?page=${page}&per_page=10`).then(j => { setEvents(j.data); setTotal(j.meta?.total ?? j.data.length); }).catch(() => { });
   }, [tenantId, page]);
   useEffect(() => { reload(); }, [reload]);
+  useEffect(() => { apiFetch(`/api/v1/tenants/${tenantId}/webhooks/public-status`).then(j => setPub(j.data)).catch(() => { }); }, [tenantId]);
   useEffect(() => { if (tab === "events") reloadEvents(); }, [tab, reloadEvents]);
 
   async function create(e: React.FormEvent) { e.preventDefault(); await apiFetch(`/api/v1/tenants/${tenantId}/webhook-endpoints`, { method: "POST", body: JSON.stringify({ name: form.name, forwarding_url: form.forwarding_url || undefined }) }); setForm({ name: "", forwarding_url: "" }); setShowCreate(false); reload(); }
@@ -34,10 +36,22 @@ export default function Webhooks({ tenantId }: { tenantId: string }) {
       <button className="pl-btn pl-btn-primary" onClick={() => setShowCreate(true)}><I.plus /> Create Endpoint</button>
     </div>
     {msg && <div style={{ fontSize: 12, padding: "8px 12px", borderRadius: 8, background: "var(--bg-card)", border: "1px solid var(--border)" }}>{msg}</div>}
+    {pub && (pub.ready ? (
+      <div style={{ display: "flex", gap: 10, alignItems: "center", padding: "10px 14px", borderRadius: 10, background: "var(--success-soft, rgba(34,197,94,0.08))", border: "1px solid rgba(34,197,94,0.25)", fontSize: 13 }}>
+        <span style={{ width: 8, height: 8, borderRadius: 999, background: "var(--success, #22C55E)", flexShrink: 0 }} />
+        <div style={{ flex: 1, minWidth: 0 }}><strong>Public webhooks ready.</strong> <span style={{ color: "var(--text-secondary)" }}>Telegram & external services can reach </span><span className="pl-mono" style={{ fontSize: 12 }}>{pub.public_base_url}</span></div>
+        <button className="pl-btn pl-btn-ghost pl-btn-sm" onClick={() => pub.public_base_url && navigator.clipboard.writeText(pub.public_base_url)}><I.copy /> Copy</button>
+      </div>
+    ) : (
+      <div style={{ display: "flex", gap: 10, alignItems: "center", padding: "10px 14px", borderRadius: 10, background: "var(--warning-soft, rgba(245,158,11,0.08))", border: "1px solid rgba(245,158,11,0.3)", fontSize: 13 }}>
+        <span style={{ width: 8, height: 8, borderRadius: 999, background: "var(--warning, #F59E0B)", flexShrink: 0 }} />
+        <div><strong>Public webhooks not reachable.</strong> <span style={{ color: "var(--text-secondary)" }}>Set <span className="pl-mono" style={{ fontSize: 12 }}>PORTLANE_PUBLIC_BASE_URL</span> (tunnel/domain) so Telegram & external services can callback here.</span></div>
+      </div>
+    ))}
     <div style={{ display: "flex", gap: 8, borderBottom: "1px solid var(--border)", paddingBottom: 8 }}><button onClick={() => setTab("endpoints")} style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: tab === "endpoints" ? "var(--accent)" : "transparent", color: tab === "endpoints" ? "white" : "var(--text-secondary)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Endpoints</button><button onClick={() => setTab("events")} style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: tab === "events" ? "var(--accent)" : "transparent", color: tab === "events" ? "white" : "var(--text-secondary)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Events</button></div>
     {tab === "endpoints" ? (
       <div className="pl-card" style={{ padding: 0, overflow: "hidden" }}>{eps.length === 0 ? <div className="pl-empty"><div className="pl-empty-ic"><I.webhook /></div>No endpoints yet.</div> :
-        <table className="pl-table"><thead><tr><th>Name</th><th>Public ID</th><th>URL</th><th>Status</th><th /></tr></thead><tbody>{eps.map((r: any) => <tr key={r.id}><td style={{ fontWeight: 500 }}>{r.name}</td><td className="pl-mono"><span style={{ background: "var(--bg-input)", border: "1px solid var(--border)", padding: "2px 6px", borderRadius: 6 }}>{r.public_identifier}</span> <button onClick={() => navigator.clipboard.writeText(r.public_identifier)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)" }}><I.copy /></button></td><td className="pl-mono" style={{ fontSize: 11 }}>/hooks/{r.public_identifier} {r.forwarding_config_json?.url && <span style={{ color: "var(--text-muted)" }}>→ {r.forwarding_config_json.url}</span>}</td><td><StatusBadge status={r.status ?? "Active"} /></td><td style={{ display: "flex", gap: 6 }}><button className="pl-btn pl-btn-ghost pl-btn-sm" onClick={() => openEdit(r)}>Edit</button><button className="pl-btn pl-btn-ghost pl-btn-sm" onClick={() => loadIp(r.id)}>IP</button><button className="pl-btn pl-btn-ghost pl-btn-sm" style={{ color: "var(--danger)" }} onClick={() => remove(r.id)}><I.trash /></button></td></tr>)}</tbody></table>}</div>
+        <table className="pl-table"><thead><tr><th>Name</th><th>Public ID</th><th>URL</th><th>Status</th><th /></tr></thead><tbody>{eps.map((r: any) => <tr key={r.id}><td style={{ fontWeight: 500 }}>{r.name}</td><td className="pl-mono"><span style={{ background: "var(--bg-input)", border: "1px solid var(--border)", padding: "2px 6px", borderRadius: 6 }}>{r.public_identifier}</span> <button onClick={() => navigator.clipboard.writeText(r.public_identifier)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)" }}><I.copy /></button></td><td className="pl-mono" style={{ fontSize: 11 }}>{pub?.ready && pub.public_base_url ? <><span>{pub.public_base_url}/hooks/{r.public_identifier}</span> <button onClick={() => navigator.clipboard.writeText(`${pub.public_base_url}/hooks/${r.public_identifier}`)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)" }}><I.copy /></button></> : <span>/hooks/{r.public_identifier}</span>} {r.forwarding_config_json?.url && <span style={{ color: "var(--text-muted)" }}>→ {r.forwarding_config_json.url}</span>}</td><td><StatusBadge status={r.status ?? "Active"} /></td><td style={{ display: "flex", gap: 6 }}><button className="pl-btn pl-btn-ghost pl-btn-sm" onClick={() => openEdit(r)}>Edit</button><button className="pl-btn pl-btn-ghost pl-btn-sm" onClick={() => loadIp(r.id)}>IP</button><button className="pl-btn pl-btn-ghost pl-btn-sm" style={{ color: "var(--danger)" }} onClick={() => remove(r.id)}><I.trash /></button></td></tr>)}</tbody></table>}</div>
     ) : (
       <div className="pl-card" style={{ padding: 0, overflow: "hidden" }}>{events.length === 0 ? <div className="pl-empty">No events yet. POST to /hooks/:publicIdentifier</div> :
         <div>

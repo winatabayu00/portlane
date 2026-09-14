@@ -32,10 +32,25 @@ export function verifyPlaintextWebhookSecret(secretHash: string | null, headers:
   return timingSafeEqual(hashSecret(provided), secretHash);
 }
 
+// Readiness inbound publik untuk UI: base URL publik (tunnel/domain)
+// yang dipakai membangun URL hook Telegram/generic. Public info,
+// tanpa secret — aman diekspos ke member tenant.
+export function publicHookStatus(config: AppConfig): { public_base_url: string | null; ready: boolean } {
+  const base = config.PORTLANE_PUBLIC_BASE_URL || null;
+  return { public_base_url: base, ready: !!base };
+}
+
 export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
   const pool = dbPool(config);
 
   // Management CRUD - tenant scoped via JWT
+  app.get("/api/v1/tenants/:tenantId/webhooks/public-status", async (req, reply) => {
+    const user = await requireJwtUser(req, reply, config); if (!user) return;
+    const { tenantId } = req.params as any;
+    if (!await requireTenantMember(pool, user.userId, tenantId, reply, req)) return;
+    return reply.send(success(publicHookStatus(config), String(req.id)));
+  });
+
   app.get("/api/v1/tenants/:tenantId/webhook-endpoints", async (req, reply) => {
     const user = await requireJwtUser(req, reply, config); if (!user) return;
     const { tenantId } = req.params as any;
