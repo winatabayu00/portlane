@@ -49,7 +49,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (cfg.DATABASE_URL.includes("/ai_engineering_os")) {
     throw new Error("DATABASE_URL must not point to ai_engineering_os — use isolated DB 'portlane' (e.g. .../portlane)");
   }
-  if (!cfg.JWT_SECRET) cfg.JWT_SECRET = cfg.APP_ENCRYPTION_KEY || "dev-jwt-secret-change-me";
+  if (!cfg.JWT_SECRET) cfg.JWT_SECRET = cfg.APP_ENV === "production" ? "" : (cfg.APP_ENCRYPTION_KEY || "dev-jwt-secret-change-me");
+  if (cfg.APP_ENV === "production") {
+    requireEncryptionKey(cfg);
+    if (!cfg.JWT_SECRET || cfg.JWT_SECRET.length < 32)
+      throw new Error("JWT_SECRET required in production (32+ chars, openssl rand -hex 32)");
+    if (cfg.JWT_SECRET === cfg.APP_ENCRYPTION_KEY)
+      throw new Error("JWT_SECRET must differ from APP_ENCRYPTION_KEY in production");
+  }
   return cfg;
 }
 

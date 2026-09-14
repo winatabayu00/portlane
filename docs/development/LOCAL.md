@@ -62,6 +62,9 @@ DATABASE_URL=... REDIS_URL=... node apps/api/dist/index.js
 # buka :4002 → / → dashboard, /health → JSON, /api/* → 404 JSON
 ```
 
+Deploy Ubuntu (systemd, tanpa Docker): lihat `deploy/README.md`
+(unit `portlane-api` + `portlane-worker`, env `/etc/portlane/portlane.env`).
+
 ## 4. Verifikasi
 
 ```bash

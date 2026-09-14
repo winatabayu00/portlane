@@ -1,0 +1,17 @@
+[Unit]
+Description=Portlane API (single-port 4002, serve web dist)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=portlane
+WorkingDirectory=/opt/portlane
+EnvironmentFile=/etc/portlane/portlane.env
+ExecStart=/usr/bin/node /opt/portlane/apps/api/dist/index.js
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

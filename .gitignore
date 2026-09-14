@@ -5,6 +5,8 @@ coverage/
 .env
 .env.local
 *.log
+*.rdb
+dump.rdb
 .DS_Store
 *.tsbuildinfo
 .rtk/

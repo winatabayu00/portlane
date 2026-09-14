@@ -88,7 +88,7 @@ Do not persist the raw secret if not required.
 
 Credentials that must be reused (Telegram token, SMTP password, Discord credentials) require reversible encryption at rest (AES-GCM).
 
-Aktual: key `APP_ENCRYPTION_KEY || JWT_SECRET`, default `dev-jwt-secret-change-me`. Tanpa rotation path. `sha256(s)` fallback. Rotation tercatat audit tapi manual.
+Aktual: key `APP_ENCRYPTION_KEY || JWT_SECRET`; production wajib `APP_ENCRYPTION_KEY` + `JWT_SECRET` beda, 32+ chars (`loadConfig` throw bila kosong/pendek/sama). Tanpa rotation path. `sha256(s)` fallback. Rotation tercatat audit tapi manual. `last_used_at` API key di-update setelah IP + rate gates lolos agar attempt terblokir tidak mengotori sinyal.
 
 ## 6. Tenant Isolation
 
@@ -141,7 +141,7 @@ Aktual: `validateOutboundUrl` di webhook provider (send/test), koneksi webhook/d
 
 Webhook IP allowlisting is additional protection, not a replacement for signatures or secrets.
 
-Aktual: HMAC atas raw bytes (`req.rawBody`, fallback `JSON.stringify`) via `verifyHmacSha256` + wajib prefix `sha256=`. Header: `x-webhook-signature`/`x-signature` atau `x-webhook-secret`/`Authorization`. Mode `none` + `secret_hash` tetap enforce secret.
+Aktual: HMAC atas raw bytes (`req.rawBody`, fallback `JSON.stringify`) via `verifyHmacSha256` + wajib prefix `sha256=`. Header: `x-webhook-signature`/`x-signature` atau `x-webhook-secret` (compare timing-safe; `Authorization: Bearer` tidak lagi diterima sebagai secret). Mode `none` + `secret_hash` tetap enforce secret.
 
 ## 12. Audit-Relevant Events
 

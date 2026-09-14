@@ -138,13 +138,18 @@ JWT_EXPIRES_IN=7d
     writeFileSync(env, tmpl); ok(".env dibuat dari template internal → isi DATABASE_URL / REDIS_URL");
   } else ok(".env sudah ada");
 
-  // generate APP_ENCRYPTION_KEY jika kosong
+  // generate APP_ENCRYPTION_KEY + JWT_SECRET jika kosong (prod wajib beda)
   if (existsSync(env)) {
     let txt = readFileSync(env, "utf8");
     if (/^APP_ENCRYPTION_KEY=\s*$/m.test(txt)) {
       const key = execSync("openssl rand -hex 32", { encoding: "utf8" }).trim();
       txt = txt.replace(/^APP_ENCRYPTION_KEY=.*$/m, `APP_ENCRYPTION_KEY=${key}`);
       writeFileSync(env, txt); ok(`APP_ENCRYPTION_KEY digenerate`);
+    }
+    if (/^JWT_SECRET=\s*$/m.test(txt)) {
+      const key = execSync("openssl rand -hex 32", { encoding: "utf8" }).trim();
+      txt = txt.replace(/^JWT_SECRET=.*$/m, `JWT_SECRET=${key}`);
+      writeFileSync(env, txt); ok(`JWT_SECRET digenerate`);
     }
   }
   info("yarn install..."); run("yarn", ["install"]);
