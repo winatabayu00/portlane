@@ -1,0 +1,75 @@
+name: Deploy to mini-server (prod)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Solo prod host: deploy harus jalan sampai selesai, jangan cancel.
+concurrency:
+  group: deploy-portlane-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: pull / verify / build / migrate / restart
+    runs-on: [self-hosted, portlane]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    timeout-minutes: 20
+    env:
+      PATH: /home/winata/.nvm/versions/node/v22.23.2/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      DEPLOY_PATH: /home/winata/workspace/portlane
+
+    steps:
+      - name: Pull
+        run: |
+          set -e
+          cd "$DEPLOY_PATH"
+          git fetch origin main
+          git reset --hard origin/main
+          git log --oneline -1
+
+      - name: Install
+        run: |
+          set -e
+          cd "$DEPLOY_PATH"
+          node -v; yarn -v
+          yarn install --frozen-lockfile
+
+      - name: Verify (typecheck + lint + test)
+        run: |
+          set -e
+          cd "$DEPLOY_PATH"
+          yarn typecheck
+          yarn lint
+          yarn test
+
+      - name: Build
+        run: |
+          set -e
+          cd "$DEPLOY_PATH"
+          yarn build
+
+      - name: Migrate
+        run: |
+          set -e
+          cd "$DEPLOY_PATH"
+          export $(sudo -n /bin/cat /etc/portlane/portlane.env | grep -v '^#' | xargs)
+          yarn workspace @portlane/api migrate
+
+      - name: Restart services
+        run: |
+          set -e
+          sudo -n /bin/systemctl restart portlane-api portlane-worker
+          sudo -n /bin/systemctl reload nginx
+          sleep 5
+          sudo /bin/systemctl is-active portlane-api portlane-worker
+
+      - name: Health gate
+        run: |
+          set -e
+          echo "→ /health"; curl -sf http://127.0.0.1:4002/health
+          echo; echo "→ /ready"; READY=$(curl -sf http://127.0.0.1:4002/ready); echo "$READY"
+          echo "$READY" | grep -q '"status":"ok"'
+          echo "→ FE :3002"; curl -sf -o /dev/null -H "Accept: text/html" http://127.0.0.1:3002/
+          echo "✓ Deploy done: $(git -C "$DEPLOY_PATH" rev-parse --short HEAD)"
