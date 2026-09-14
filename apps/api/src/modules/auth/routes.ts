@@ -103,7 +103,8 @@ export async function authRoutes(app: FastifyInstance, config: AppConfig) {
     const user = await requireJwtUser(req, reply, config);
     if (!user) return;
     const tenants = await pool.query("SELECT t.id,t.name,t.slug,t.status,t.created_at FROM tenants t JOIN tenant_memberships m ON m.tenant_id=t.id WHERE m.user_id=$1 ORDER BY t.created_at", [user.userId]);
-    return reply.send(success({ user: { id: user.userId, email: user.email }, tenants: tenants.rows }, String(req.id)));
+    const u = await pool.query("SELECT name FROM users WHERE id=$1", [user.userId]);
+    return reply.send(success({ user: { id: user.userId, email: user.email, name: u.rows[0]?.name ?? null }, tenants: tenants.rows }, String(req.id)));
   });
 }
 

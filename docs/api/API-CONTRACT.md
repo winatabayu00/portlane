@@ -239,7 +239,7 @@ Tenant-scoped. Missing → `404` envelope (`errors.code: NOT_FOUND`).
 
 ## 12. Auth, Tenants, Health (dashboard, JWT)
 
-`POST /api/v1/auth/register` (`200 rc:2001`), `POST /api/v1/auth/login` (`10/min` per IP), `GET /api/v1/auth/me`. `GET/POST /api/v1/tenants`, `GET /api/v1/tenants/:id`, `GET/POST /api/v1/tenants/:id/members`. `GET /health`, `GET /ready`, `POST /internal/m00-ping` tidak pakai envelope.
+`POST /api/v1/auth/register` (`200 rc:2001`), `POST /api/v1/auth/login` (`10/min` per IP), `GET /api/v1/auth/me` (returns `user:{id,email,name}` + `tenants`). `GET/POST /api/v1/tenants`, `GET /api/v1/tenants/:id`, `GET/POST /api/v1/tenants/:id/members`. `GET /health`, `GET /ready`, `POST /internal/m00-ping` tidak pakai envelope.
 
 ## 13. Pagination
 

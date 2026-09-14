@@ -57,6 +57,8 @@ export default function App(){
   const [authed,setAuthed]=useState(()=> hasSessionHint() || !!getToken());
   const tenantId=useTenantId();
   const [tenants,setTenants]=useState<any[]>([]);
+  const [user,setUser]=useState<any|null>(null);
+  const [userOpen,setUserOpen]=useState(false);
   const [collapsed,setCollapsed]=useState(false);
   const [cmd,setCmd]=useState(false);
   const [tenantOpen,setTenantOpen]=useState(false);
@@ -64,12 +66,14 @@ export default function App(){
   const navigate=useNavigate();
   const searchRef=useRef<HTMLInputElement>(null);
 
-  useEffect(()=>{ if(authed) apiFetch("/api/v1/auth/me").then(j=>{ setTenants(j.data.tenants||[]); if(!getTenantId() && j.data.tenants?.[0]) setTenantId(j.data.tenants[0].id); }).catch(()=>{ setToken(null); clearSessionHint(); setAuthed(false); }); },[authed]);
+  useEffect(()=>{ if(authed) apiFetch("/api/v1/auth/me").then(j=>{ setUser(j.data.user ?? null); setTenants(j.data.tenants||[]); if(!getTenantId() && j.data.tenants?.[0]) setTenantId(j.data.tenants[0].id); }).catch(()=>{ setToken(null); clearSessionHint(); setAuthed(false); }); },[authed]);
   useEffect(()=>{
-    const h=(e:KeyboardEvent)=>{ if((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==="k"){ e.preventDefault(); setCmd(v=>!v);} if(e.key==="Escape") setCmd(false); };
+    const h=(e:KeyboardEvent)=>{ if((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==="k"){ e.preventDefault(); setCmd(v=>!v);} if(e.key==="Escape"){ setCmd(false); setUserOpen(false); setTenantOpen(false); } };
     window.addEventListener("keydown",h); return()=>window.removeEventListener("keydown",h);
   },[]);
   const tenant=useMemo(()=> tenants.find((t:any)=>t.id===tenantId), [tenants,tenantId]);
+  const displayName=user?.name ?? user?.email?.split("@")[0] ?? "Account";
+  const displayInitial=(displayName.slice(0,1) || "P").toUpperCase();
 
   async function createTenant(e:React.FormEvent){
     e.preventDefault(); setTenantMsg(null);
@@ -148,14 +152,25 @@ export default function App(){
             )}
           </div>
         )}
-        <div className="pl-user"><div className="pl-avatar">W</div>{!collapsed && <div style={{flex:1,minWidth:0}}><div className="pl-user-name">Winata</div><div className="pl-user-role">Owner</div></div>}{!collapsed && <I.chev/>}</div>
+        <div style={{position:"relative"}}>
+        <button className="pl-user" onClick={()=>setUserOpen(v=>!v)} style={{width:"100%",background:"transparent",border:"none",cursor:"pointer",color:"inherit",textAlign:"left"}}>
+          <div className="pl-avatar">{displayInitial}</div>{!collapsed && <div style={{flex:1,minWidth:0}}><div className="pl-user-name" style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{displayName}</div><div className="pl-user-role" style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{user?.email ?? ""}</div></div>}{!collapsed && <I.chev/>}
+        </button>
+        {userOpen && !collapsed && (
+          <div style={{position:"absolute",bottom:"100%",left:0,right:0,marginBottom:8,background:"var(--bg-modal)",border:"1px solid var(--border)",borderRadius:10,padding:6,boxShadow:"0 8px 24px rgba(0,0,0,0.5)"}}>
+            <div style={{padding:"8px 10px",fontSize:12,color:"var(--text-muted)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{user?.email ?? ""}</div>
+            <div style={{height:1,background:"var(--border)",margin:"6px 0"}}/>
+            <button onClick={()=>{ void signOutEverywhere(); }} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"none",background:"transparent",color:"var(--danger)",textAlign:"left",cursor:"pointer",fontSize:13}}>Sign out</button>
+          </div>
+        )}
+        </div>
       </div>
     </aside>
 
     <main className="pl-main">
       <div className="pl-top">
         <div>
-          <h1>Good morning, Winata 👋</h1>
+          <h1>Good morning, {displayName} 👋</h1>
           <p>Here's what's happening across Portlane today.</p>
         </div>
         <div className="pl-top-actions">
