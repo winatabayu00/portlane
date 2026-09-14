@@ -12,4 +12,14 @@ export default defineConfig({
       "/internal": "http://localhost:4002",
     },
   },
+  build: {
+    rollupOptions: {
+      // React vendor berubah jarang → chunk terpisah, di-cache lama oleh browser.
+      // Halaman rute sudah lazy (App.tsx) jadi entry hanya shell + vendor.
+      output: { manualChunks: { vendor: ["react", "react-dom", "react-router-dom"] } },
+    },
+    // Vendor React (~500KB, third-party, tidak bisa dikecilkan tanpa ganti
+    // framework) dikecualikan dari warning; chunk aplikasi jauh di bawahnya.
+    chunkSizeWarningLimit: 600,
+  },
 });
