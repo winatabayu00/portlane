@@ -21,7 +21,7 @@ export default function Webhooks({ tenantId }: { tenantId: string }) {
 
   const reload = useCallback(() => {
     apiFetch(`/api/v1/tenants/${tenantId}/webhook-endpoints`).then(j => setEps(j.data)).catch(() => { });
-    apiFetch(`/api/v1/tenants/${tenantId}/provider-connections`).then(j => setConns(j.data ?? [])).catch(() => { });
+    apiFetch(`/api/v1/tenants/${tenantId}/provider-connections?provider_key=telegram`).then(j => setConns(j.data ?? [])).catch(() => { });
     apiFetch(`/api/v1/tenants/${tenantId}/telegram/webhook-links`).then(j => setTgLinks(j.data ?? [])).catch(() => { });
   }, [tenantId]);
   const reloadEvents = useCallback(() => {
