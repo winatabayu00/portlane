@@ -43,6 +43,9 @@ export function newRequestId(): string {
 const RESERVED_PREFIXES = ["/health", "/ready", "/internal", "/api", "/hooks"];
 
 export function resolveWebDist(config: AppConfig): string | null {
+  // BE API-only: set WEB_DIST_DIR=disabled agar backend tidak serve dashboard
+  // (FE diserve terpisah, mis. nginx :3002). Default tetap single-port bila dist ada.
+  if (config.WEB_DIST_DIR === "disabled") return null;
   if (config.WEB_DIST_DIR) {
     if (!existsSync(join(config.WEB_DIST_DIR, "index.html"))) {
       throw new Error(`Web dist not found at WEB_DIST_DIR=${config.WEB_DIST_DIR} (run yarn build first).`);

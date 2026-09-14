@@ -10,11 +10,16 @@ const configSchema = z.object({
   REDIS_URL: z.string().min(1, "REDIS_URL is required (Redis on minisever via Tailscale)"),
   APP_ENCRYPTION_KEY: z.string().default(""),
   WEB_DIST_DIR: z.string().default(""),
+  // "true"/"false" eksplisit, atau "" (=auto: Secure hanya di production).
+  // Set "false" bila dashboard diakses via HTTP polos di jaringan privat
+  // (mis. Tailscale) — browser menolak cookie Secure di atas HTTP sehingga
+  // sesi tidak menempel ("Missing token" setelah login sukses).
+  COOKIE_SECURE: z.string().default(""),
   JWT_SECRET: z.string().default(""),
   JWT_EXPIRES_IN: z.string().default("7d"),
 });
 
-export type AppConfig = z.infer<typeof configSchema>;
+export type AppConfig = Omit<z.infer<typeof configSchema>, "COOKIE_SECURE"> & { COOKIE_SECURE: boolean };
 
 function buildDatabaseUrlFromDbVars(env: NodeJS.ProcessEnv): string | undefined {
   const host = (env.DB_HOST as string) || "";
@@ -46,18 +51,25 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error(`Invalid configuration: ${details}`);
   }
   const cfg = parsed.data;
-  if (cfg.DATABASE_URL.includes("/ai_engineering_os")) {
+  const rawSecure = cfg.COOKIE_SECURE.trim().toLowerCase();
+  let cookieSecure: boolean;
+  if (rawSecure === "") cookieSecure = cfg.APP_ENV === "production";
+  else if (rawSecure === "true" || rawSecure === "1") cookieSecure = true;
+  else if (rawSecure === "false" || rawSecure === "0") cookieSecure = false;
+  else throw new Error("COOKIE_SECURE must be true/false (or empty for auto: Secure in production)");
+  const out: AppConfig = { ...cfg, COOKIE_SECURE: cookieSecure };
+  if (out.DATABASE_URL.includes("/ai_engineering_os")) {
     throw new Error("DATABASE_URL must not point to ai_engineering_os — use isolated DB 'portlane' (e.g. .../portlane)");
   }
-  if (!cfg.JWT_SECRET) cfg.JWT_SECRET = cfg.APP_ENV === "production" ? "" : (cfg.APP_ENCRYPTION_KEY || "dev-jwt-secret-change-me");
-  if (cfg.APP_ENV === "production") {
-    requireEncryptionKey(cfg);
-    if (!cfg.JWT_SECRET || cfg.JWT_SECRET.length < 32)
+  if (!out.JWT_SECRET) out.JWT_SECRET = out.APP_ENV === "production" ? "" : (out.APP_ENCRYPTION_KEY || "dev-jwt-secret-change-me");
+  if (out.APP_ENV === "production") {
+    requireEncryptionKey(out);
+    if (!out.JWT_SECRET || out.JWT_SECRET.length < 32)
       throw new Error("JWT_SECRET required in production (32+ chars, openssl rand -hex 32)");
-    if (cfg.JWT_SECRET === cfg.APP_ENCRYPTION_KEY)
+    if (out.JWT_SECRET === out.APP_ENCRYPTION_KEY)
       throw new Error("JWT_SECRET must differ from APP_ENCRYPTION_KEY in production");
   }
-  return cfg;
+  return out;
 }
 
 export function trustedProxyList(config: AppConfig): string[] | false {

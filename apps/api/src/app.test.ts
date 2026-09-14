@@ -17,6 +17,7 @@ const testConfig: AppConfig = {
   REDIS_URL: "redis://localhost:6379",
   APP_ENCRYPTION_KEY: "test-encryption-key-32chars-long!!",
   WEB_DIST_DIR: "",
+  COOKIE_SECURE: false,
   JWT_SECRET: "test-jwt-secret",
   JWT_EXPIRES_IN: "7d",
 };

@@ -27,7 +27,10 @@ function expiresInSeconds(v: string): number {
 // Authorization Bearer tetap didukung untuk kompatibilitas + API clients.
 export function setSessionCookie(reply: any, token: string, config: AppConfig): void {
   const parts = [`${SESSION_COOKIE}=${encodeURIComponent(token)}`, "Path=/", "HttpOnly", "SameSite=Lax", `Max-Age=${expiresInSeconds(config.JWT_EXPIRES_IN)}`];
-  if (config.APP_ENV === "production") parts.push("Secure");
+  // Secure hanya bila COOKIE_SECURE (auto: true di production). HTTP polos +
+  // Secure = browser membuang cookie sehingga sesi tak menempel; set
+  // COOKIE_SECURE=false hanya untuk akses HTTP di jaringan privat (tailscale).
+  if (config.COOKIE_SECURE) parts.push("Secure");
   reply.header("Set-Cookie", parts.join("; "));
 }
 

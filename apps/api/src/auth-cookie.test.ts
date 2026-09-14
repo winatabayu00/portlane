@@ -1,6 +1,7 @@
 import { describe, expect, it, afterEach } from "vitest";
 import { buildApp } from "./app.js";
-import type { AppConfig } from "./config.js";
+import { loadConfig, type AppConfig } from "./config.js";
+import { setSessionCookie } from "./modules/auth/routes.js";
 import { dbPool, closeDb } from "./db.js";
 import { closeRedis } from "./redis.js";
 
@@ -20,10 +21,52 @@ function testConfig(): AppConfig {
     REDIS_URL: process.env.REDIS_URL ?? "redis://127.0.0.1:1",
     APP_ENCRYPTION_KEY: "test-encryption-key-32chars-long!!",
     WEB_DIST_DIR: "",
+    COOKIE_SECURE: false,
     JWT_SECRET: "test-jwt-secret",
     JWT_EXPIRES_IN: "7d",
   };
 }
+
+describe("session cookie Secure flag (no DB)", () => {
+  const base = {
+    DATABASE_URL: "postgres://localhost:5432/portlane_test",
+    REDIS_URL: "redis://localhost:6379",
+    APP_ENCRYPTION_KEY: "test-encryption-key-32chars-long!!",
+    JWT_SECRET: "test-jwt-secret-32chars-long!!!!!",
+    JWT_EXPIRES_IN: "7d",
+  };
+  function headerFor(secure: boolean): string {
+    let captured = "";
+    setSessionCookie({ header: (_k: string, v: string) => { captured = v; } }, "tok123", {
+      COOKIE_SECURE: secure,
+      JWT_EXPIRES_IN: "7d",
+    } as AppConfig);
+    return captured;
+  }
+
+  it("auto: Secure in production, not in development/test", () => {
+    expect(loadConfig({ ...base, APP_ENV: "production" }).COOKIE_SECURE).toBe(true);
+    expect(loadConfig({ ...base, APP_ENV: "development" }).COOKIE_SECURE).toBe(false);
+    expect(loadConfig({ ...base, APP_ENV: "test" }).COOKIE_SECURE).toBe(false);
+  });
+
+  it("explicit override wins over auto", () => {
+    expect(loadConfig({ ...base, APP_ENV: "production", COOKIE_SECURE: "false" }).COOKIE_SECURE).toBe(false);
+    expect(loadConfig({ ...base, APP_ENV: "development", COOKIE_SECURE: "true" }).COOKIE_SECURE).toBe(true);
+  });
+
+  it("invalid value throws loudly", () => {
+    expect(() => loadConfig({ ...base, APP_ENV: "production", COOKIE_SECURE: "maybe" })).toThrow(/COOKIE_SECURE/);
+  });
+
+  it("Set-Cookie carries Secure only when enabled (HttpOnly + SameSite kept)", () => {
+    const off = headerFor(false);
+    expect(off).toMatch(/HttpOnly/);
+    expect(off).toMatch(/SameSite=Lax/);
+    expect(off).not.toMatch(/Secure/);
+    expect(headerFor(true)).toMatch(/Secure/);
+  });
+});
 
 describe.skipIf(!hasDb)("session cookie auth (live DB)", () => {
   afterEach(async () => {
