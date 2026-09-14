@@ -1,4 +1,7 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { normalizePublicBaseUrl, publicHookUrl, loadConfig } from "./config.js";
 import { verifyPlaintextWebhookSecret } from "./modules/webhooks/routes.js";
 import { setTelegramWebhook, getTelegramWebhookInfo, deleteTelegramWebhook } from "./modules/providers/telegram/index.js";
@@ -80,5 +83,31 @@ describe("telegram webhook bot api", () => {
     const e: any = await getTelegramWebhookInfo(token).catch((err) => err);
     expect(e.code).toBe("TIMEOUT");
     expect(e.retryable).toBe(true);
+  });
+});
+
+describe("telegram webhook linkage (§39 observable wiring)", () => {
+  const dir = dirname(fileURLToPath(import.meta.url));
+  it("migration persists bot↔endpoint links", () => {
+    const sql = readFileSync(join(dir, "..", "migrations", "008_telegram_webhook_links.sql"), "utf8");
+    expect(sql).toMatch(/CREATE TABLE IF NOT EXISTS telegram_webhook_links/);
+    expect(sql).toMatch(/UNIQUE\(provider_connection_id, webhook_endpoint_id\)/);
+    expect(sql).toMatch(/tenant_id/);
+  });
+  it("routes persist links on set, list them, and clear on delete", () => {
+    const src = readFileSync(join(dir, "modules", "providers", "routes.ts"), "utf8");
+    expect(src).toMatch(/telegram_webhook_links/);
+    expect(src).toMatch(/webhook-links/);
+    expect(src).toMatch(/DELETE FROM telegram_webhook_links/);
+  });
+  it("webhooks page wires bot pick + set/check/delete + links list", () => {
+    const webDir = join(dir, "..", "..", "web", "src", "pages", "Webhooks.tsx");
+    expect(existsSync(webDir)).toBe(true);
+    const src = readFileSync(webDir, "utf8");
+    expect(src).toMatch(/telegram\/set-webhook/);
+    expect(src).toMatch(/telegram\/webhook-info/);
+    expect(src).toMatch(/telegram\/delete-webhook/);
+    expect(src).toMatch(/telegram\/webhook-links/);
+    expect(src).toMatch(/provider-connections\?provider_key=telegram/);
   });
 });

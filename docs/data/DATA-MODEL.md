@@ -151,6 +151,18 @@ Recommended unique constraint (code pakai full `UNIQUE`, bukan partial — JWT p
 - created_at
 - updated_at
 
+## telegram_webhook_links
+
+- id
+- tenant_id
+- provider_connection_id (bot; 1 bot boleh punya N endpoint)
+- webhook_endpoint_id (1 endpoint = 1 public URL)
+- telegram_url (URL aktif terakhir yang di-set ke Telegram; Bot API 1 bot = 1 URL, last set wins)
+- last_set_at
+- created_at
+- updated_at
+- UNIQUE(provider_connection_id, webhook_endpoint_id)
+
 ## webhook_events
 
 - id

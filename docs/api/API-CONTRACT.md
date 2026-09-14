@@ -137,6 +137,10 @@ Secrets must be write-only in normal responses. Discord test offline (hostname c
 
 Body `{connectionId, endpointId, secret?}` (`secret` regex `[A-Za-z0-9_-]{1,256}`). Registers Telegram `setWebhook` to `{PORTLANE_PUBLIC_BASE_URL}/hooks/:publicIdentifier`. `secret` eksplisit disimpan di endpoint; kosong reuse secret lama. Requires `PORTLANE_PUBLIC_BASE_URL` else `422`. Errors: `404` connection/endpoint, `422` non-Telegram/unreadable creds, Telegram `401/403` → `422`, lain → `502`.
 
+### GET /tenants/:tenantId/telegram/webhook-links (?connectionId=)
+
+Lists persisted bot↔endpoint wiring (`telegram_webhook_links`): connection/endpoint names, `telegram_url`, `last_set_at`. Tenant-scoped JWT.
+
 ### GET /tenants/:tenantId/telegram/webhook-info?connectionId= (10/min)
 
 Proxies Telegram `getWebhookInfo`. Same `404/422/502` mapping.

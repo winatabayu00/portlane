@@ -95,13 +95,19 @@ Show:
 
 ## 7. Webhooks
 
-Webhook endpoint list:
+Tabs: Endpoints | Events | Telegram.
+
+Endpoints tab is a list (no header create button):
 
 - name
 - public endpoint identifier
 - status
 - security mode
 - IP allowlist count
+
+Actions per endpoint: Edit (name/forwarding URL/status), IP allowlist, Delete (confirm).
+
+Creation entry point: Telegram tab step 2 ("Baru"/"Buat endpoint") opens the Create Endpoint modal (name + optional forwarding URL); the new endpoint is auto-selected for bot wiring.
 
 Webhook event detail (drawer: `payload_json` ter-redact + forward attempts + `request_id,source_ip,method,safe_headers_json,status,received_at`):
 

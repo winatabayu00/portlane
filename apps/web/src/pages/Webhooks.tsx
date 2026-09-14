@@ -4,29 +4,34 @@ import { StatusBadge } from "../components/primitives.js";
 import { I } from "../components/icons.js";
 
 export default function Webhooks({ tenantId }: { tenantId: string }) {
-  const [eps, setEps] = useState<any[]>([]); const [events, setEvents] = useState<any[]>([]); const [tab, setTab] = useState<"endpoints" | "events">("endpoints");
+  const [eps, setEps] = useState<any[]>([]); const [events, setEvents] = useState<any[]>([]); const [tab, setTab] = useState<"endpoints" | "events" | "telegram">("endpoints");
   const [form, setForm] = useState({ name: "", forwarding_url: "" }); const [showCreate, setShowCreate] = useState(false); const [edit, setEdit] = useState<any | null>(null); const [editForm, setEditForm] = useState({ name: "", forwarding_url: "", status: "active" });
   const [selectedEvent, setSelectedEvent] = useState<any | null>(null); const [eventAttempts, setEventAttempts] = useState<any[]>([]); const [msg, setMsg] = useState<string | null>(null);
   const [page, setPage] = useState(1); const [total, setTotal] = useState(0);
   const [ipFor, setIpFor] = useState<string | null>(null); const [ipList, setIpList] = useState<any[]>([]); const [ipForm, setIpForm] = useState({ cidr: "", description: "" });
   const [pub, setPub] = useState<{ public_base_url: string | null; ready: boolean } | null>(null);
   const [conns, setConns] = useState<any[]>([]);
+  const [tgLinks, setTgLinks] = useState<any[]>([]);
+  const [tgWire, setTgWire] = useState({ connectionId: "", endpointId: "", secret: "" }); const [tgWireMsg, setTgWireMsg] = useState<string | null>(null);
   const [setTg, setSetTg] = useState<any | null>(null);
   const [setTgForm, setSetTgForm] = useState({ connectionId: "", secret: "" });
   const [tgInfo, setTgInfo] = useState<any | null>(null); const [tgInfoErr, setTgInfoErr] = useState<string | null>(null);
   const [setTgMsg, setSetTgMsg] = useState<string | null>(null);
   const tgConns = conns.filter((c: any) => c.provider_key === "telegram");
 
-  const reload = useCallback(() => { apiFetch(`/api/v1/tenants/${tenantId}/webhook-endpoints`).then(j => setEps(j.data)); }, [tenantId]);
+  const reload = useCallback(() => {
+    apiFetch(`/api/v1/tenants/${tenantId}/webhook-endpoints`).then(j => setEps(j.data)).catch(() => { });
+    apiFetch(`/api/v1/tenants/${tenantId}/provider-connections`).then(j => setConns(j.data ?? [])).catch(() => { });
+    apiFetch(`/api/v1/tenants/${tenantId}/telegram/webhook-links`).then(j => setTgLinks(j.data ?? [])).catch(() => { });
+  }, [tenantId]);
   const reloadEvents = useCallback(() => {
     apiFetch(`/api/v1/tenants/${tenantId}/webhook-events?page=${page}&per_page=10`).then(j => { setEvents(j.data); setTotal(j.meta?.total ?? j.data.length); }).catch(() => { });
   }, [tenantId, page]);
   useEffect(() => { reload(); }, [reload]);
   useEffect(() => { apiFetch(`/api/v1/tenants/${tenantId}/webhooks/public-status`).then(j => setPub(j.data)).catch(() => { }); }, [tenantId]);
-  useEffect(() => { apiFetch(`/api/v1/tenants/${tenantId}/provider-connections`).then(j => setConns(j.data ?? [])).catch(() => { }); }, [tenantId]);
   useEffect(() => { if (tab === "events") reloadEvents(); }, [tab, reloadEvents]);
 
-  async function create(e: React.FormEvent) { e.preventDefault(); await apiFetch(`/api/v1/tenants/${tenantId}/webhook-endpoints`, { method: "POST", body: JSON.stringify({ name: form.name, forwarding_url: form.forwarding_url || undefined }) }); setForm({ name: "", forwarding_url: "" }); setShowCreate(false); reload(); }
+  async function create(e: React.FormEvent) { e.preventDefault(); const j = await apiFetch(`/api/v1/tenants/${tenantId}/webhook-endpoints`, { method: "POST", body: JSON.stringify({ name: form.name, forwarding_url: form.forwarding_url || undefined }) }); const newId = (j as any)?.data?.id as string | undefined; setForm({ name: "", forwarding_url: "" }); setShowCreate(false); if (newId) setTgWire(f => ({ ...f, endpointId: f.endpointId || newId })); reload(); }
   async function remove(id: string) { if (!confirm("Delete endpoint?")) return; await apiFetch(`/api/v1/tenants/${tenantId}/webhook-endpoints/${id}`, { method: "DELETE" }); reload(); }
   function openEdit(r: any) { setEdit(r); setEditForm({ name: r.name, forwarding_url: r.forwarding_config_json?.url ?? "", status: r.status }); }
   async function saveEdit(e: React.FormEvent) { e.preventDefault(); if (!edit) return; await apiFetch(`/api/v1/tenants/${tenantId}/webhook-endpoints/${edit.id}`, { method: "PATCH", body: JSON.stringify({ name: editForm.name, forwarding_url: editForm.forwarding_url || null, status: editForm.status }) }); setEdit(null); reload(); }
@@ -37,6 +42,9 @@ export default function Webhooks({ tenantId }: { tenantId: string }) {
   async function loadIp(endpointId: string) { setIpFor(endpointId); const j = await apiFetch(`/api/v1/tenants/${tenantId}/webhook-endpoints/${endpointId}/ip-allowlist`); setIpList(j.data); }
   async function addIp(e: React.FormEvent) { e.preventDefault(); if (!ipFor) return; await apiFetch(`/api/v1/tenants/${tenantId}/webhook-endpoints/${ipFor}/ip-allowlist`, { method: "POST", body: JSON.stringify(ipForm) }); setIpForm({ cidr: "", description: "" }); loadIp(ipFor); }
   async function delIp(entryId: string) { if (!ipFor) return; await apiFetch(`/api/v1/tenants/${tenantId}/webhook-endpoints/${ipFor}/ip-allowlist/${entryId}`, { method: "DELETE" }); loadIp(ipFor); }
+  async function tgSet(e: React.FormEvent) { e.preventDefault(); setTgWireMsg(null); setTgInfo(null); try { const j = await apiFetch(`/api/v1/tenants/${tenantId}/telegram/set-webhook`, { method: "POST", body: JSON.stringify({ connectionId: tgWire.connectionId, endpointId: tgWire.endpointId, ...(tgWire.secret ? { secret: tgWire.secret } : {}) }) }); setTgWireMsg(`Webhook set: ${j.data?.url ?? ""}`); setTgWire({ ...tgWire, secret: "" }); reload(); } catch (er: any) { setTgWireMsg(er.message || er.code || "Unknown error"); } }
+  async function tgLoadInfo() { setTgWireMsg(null); if (!tgWire.connectionId) { setTgWireMsg("Pick a Telegram bot first."); return; } try { const j = await apiFetch(`/api/v1/tenants/${tenantId}/telegram/webhook-info?connectionId=${encodeURIComponent(tgWire.connectionId)}`); setTgInfo(j.data); } catch (er: any) { setTgWireMsg(er.message || er.code || "Unknown error"); } }
+  async function tgDelete() { if (!tgWire.connectionId) { setTgWireMsg("Pick a Telegram bot first."); return; } if (!confirm("Delete Telegram webhook for this bot?")) return; try { await apiFetch(`/api/v1/tenants/${tenantId}/telegram/delete-webhook`, { method: "POST", body: JSON.stringify({ connectionId: tgWire.connectionId }) }); setTgWireMsg("Webhook deleted."); setTgInfo(null); reload(); } catch (er: any) { setTgWireMsg(er.message || er.code || "Unknown error"); } }
 
   function genSecret() { const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"; let s = ""; const a = new Uint32Array(32); crypto.getRandomValues(a); for (const n of a) s += chars[n % 64]; setSetTgForm(f => ({ ...f, secret: s })); }
   async function loadTgInfo(connectionId: string) {
@@ -54,18 +62,17 @@ export default function Webhooks({ tenantId }: { tenantId: string }) {
       const j = await apiFetch(`/api/v1/tenants/${tenantId}/telegram/set-webhook`, { method: "POST", body: JSON.stringify(body) });
       setSetTgMsg(`Webhook terdaftar: ${j.data?.url ?? ""}`);
       await loadTgInfo(setTgForm.connectionId);
+      reload();
     } catch (er: any) { setSetTgMsg(er.message || er.code || "Unknown error"); }
   }
   async function deleteTg() {
     if (!setTgForm.connectionId || !confirm("Hapus webhook Telegram di akun ini?")) return; setSetTgMsg(null);
-    try { await apiFetch(`/api/v1/tenants/${tenantId}/telegram/delete-webhook`, { method: "POST", body: JSON.stringify({ connectionId: setTgForm.connectionId }) }); setSetTgMsg("Webhook dihapus."); await loadTgInfo(setTgForm.connectionId); }
+    try { await apiFetch(`/api/v1/tenants/${tenantId}/telegram/delete-webhook`, { method: "POST", body: JSON.stringify({ connectionId: setTgForm.connectionId }) }); setSetTgMsg("Webhook dihapus."); await loadTgInfo(setTgForm.connectionId); reload(); }
     catch (er: any) { setSetTgMsg(er.message || er.code || "Unknown error"); }
   }
 
   return <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}><div><h2 style={{ margin: 0, fontSize: 18 }}>Webhooks</h2><p style={{ margin: "4px 0 0", fontSize: 13, color: "var(--text-secondary)" }}>Receive and forward inbound webhooks.</p></div>
-      <button className="pl-btn pl-btn-primary" onClick={() => setShowCreate(true)}><I.plus /> Create Endpoint</button>
-    </div>
+    <div><h2 style={{ margin: 0, fontSize: 18 }}>Webhooks</h2><p style={{ margin: "4px 0 0", fontSize: 13, color: "var(--text-secondary)" }}>Receive and forward inbound webhooks.</p></div>
     {msg && <div style={{ fontSize: 12, padding: "8px 12px", borderRadius: 8, background: "var(--bg-card)", border: "1px solid var(--border)" }}>{msg}</div>}
     {pub && (pub.ready ? (
       <div style={{ display: "flex", gap: 10, alignItems: "center", padding: "10px 14px", borderRadius: 10, background: "var(--success-soft, rgba(34,197,94,0.08))", border: "1px solid rgba(34,197,94,0.25)", fontSize: 13 }}>
@@ -79,10 +86,33 @@ export default function Webhooks({ tenantId }: { tenantId: string }) {
         <div><strong>Public webhooks not reachable.</strong> <span style={{ color: "var(--text-secondary)" }}>Set <span className="pl-mono" style={{ fontSize: 12 }}>PORTLANE_PUBLIC_BASE_URL</span> (tunnel/domain) so Telegram & external services can callback here.</span></div>
       </div>
     ))}
-    <div style={{ display: "flex", gap: 8, borderBottom: "1px solid var(--border)", paddingBottom: 8 }}><button onClick={() => setTab("endpoints")} style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: tab === "endpoints" ? "var(--accent)" : "transparent", color: tab === "endpoints" ? "white" : "var(--text-secondary)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Endpoints</button><button onClick={() => setTab("events")} style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: tab === "events" ? "var(--accent)" : "transparent", color: tab === "events" ? "white" : "var(--text-secondary)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Events</button></div>
+    <div style={{ display: "flex", gap: 8, borderBottom: "1px solid var(--border)", paddingBottom: 8 }}><button onClick={() => setTab("endpoints")} style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: tab === "endpoints" ? "var(--accent)" : "transparent", color: tab === "endpoints" ? "white" : "var(--text-secondary)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Endpoints</button><button onClick={() => setTab("events")} style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: tab === "events" ? "var(--accent)" : "transparent", color: tab === "events" ? "white" : "var(--text-secondary)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Events</button><button onClick={() => setTab("telegram")} style={{ padding: "6px 12px", borderRadius: 8, border: "none", background: tab === "telegram" ? "var(--accent)" : "transparent", color: tab === "telegram" ? "white" : "var(--text-secondary)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Telegram</button></div>
     {tab === "endpoints" ? (
       <div className="pl-card" style={{ padding: 0, overflow: "hidden" }}>{eps.length === 0 ? <div className="pl-empty"><div className="pl-empty-ic"><I.webhook /></div>No endpoints yet.</div> :
         <table className="pl-table"><thead><tr><th>Name</th><th>Public ID</th><th>URL</th><th>Status</th><th /></tr></thead><tbody>{eps.map((r: any) => <tr key={r.id}><td style={{ fontWeight: 500 }}>{r.name}</td><td className="pl-mono"><span style={{ background: "var(--bg-input)", border: "1px solid var(--border)", padding: "2px 6px", borderRadius: 6 }}>{r.public_identifier}</span> <button onClick={() => navigator.clipboard.writeText(r.public_identifier)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)" }}><I.copy /></button></td><td className="pl-mono" style={{ fontSize: 11 }}>{pub?.ready && pub.public_base_url ? <><span>{pub.public_base_url}/hooks/{r.public_identifier}</span> <button onClick={() => navigator.clipboard.writeText(`${pub.public_base_url}/hooks/${r.public_identifier}`)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)" }}><I.copy /></button></> : <span>/hooks/{r.public_identifier}</span>} {r.forwarding_config_json?.url && <span style={{ color: "var(--text-muted)" }}>→ {r.forwarding_config_json.url}</span>}</td><td><StatusBadge status={r.status ?? "Active"} /></td><td style={{ display: "flex", gap: 6 }}><button className="pl-btn pl-btn-ghost pl-btn-sm" onClick={() => openEdit(r)}>Edit</button><button className="pl-btn pl-btn-ghost pl-btn-sm" onClick={() => loadIp(r.id)}>IP</button><button className="pl-btn pl-btn-ghost pl-btn-sm" onClick={() => openSetTg(r)}>Telegram</button><button className="pl-btn pl-btn-ghost pl-btn-sm" style={{ color: "var(--danger)" }} onClick={() => remove(r.id)}><I.trash /></button></td></tr>)}</tbody></table>}</div>
+    ) : tab === "telegram" ? (
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div className="pl-card" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div><div style={{ fontWeight: 600, fontSize: 13 }}>Hubungkan bot Telegram ke URL publik</div>
+            <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>3 langkah: pilih bot → pilih/buat endpoint → klik Set webhook. 1 endpoint = 1 URL publik (/hooks/…), boleh forward ke webhook downstream yang sama.</div></div>
+          {tgWireMsg && <div style={{ fontSize: 12, padding: "8px 12px", borderRadius: 8, background: "var(--bg-input)", border: "1px solid var(--border)", wordBreak: "break-all" }}>{tgWireMsg}</div>}
+          <form onSubmit={tgSet} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div><label className="pl-label">1. Bot Telegram</label><select className="pl-select" value={tgWire.connectionId} onChange={e => setTgWire({ ...tgWire, connectionId: e.target.value })} required><option value="">— Pilih bot —</option>{tgConns.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+              {tgConns.length === 0 && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>Belum ada bot. Buat dulu di halaman Providers → Telegram.</div>}</div>
+            <div><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><label className="pl-label">2. Endpoint (URL publik)</label>{eps.length > 0 && <button type="button" className="pl-btn pl-btn-ghost pl-btn-sm" onClick={() => setShowCreate(true)}><I.plus /> Baru</button>}</div>
+              {eps.length === 0 ? (
+                <div style={{ padding: 12, borderRadius: 8, background: "var(--bg-input)", border: "1px dashed var(--border)", fontSize: 12, display: "flex", flexDirection: "column", gap: 8 }}><span>Belum ada endpoint. Buat dulu biar dapat URL publik (/hooks/…).</span><span><button type="button" className="pl-btn pl-btn-primary pl-btn-sm" onClick={() => setShowCreate(true)}><I.plus /> Buat endpoint</button></span></div>
+              ) : (
+                <select className="pl-select" value={tgWire.endpointId} onChange={e => setTgWire({ ...tgWire, endpointId: e.target.value })} required><option value="">— Pilih endpoint —</option>{eps.map((x: any) => <option key={x.id} value={x.id}>{x.name} · /hooks/{x.public_identifier}</option>)}</select>
+              )}</div>
+            <div><label className="pl-label">3. Secret (opsional — kosong = pakai secret endpoint)</label><input className="pl-input pl-mono" value={tgWire.secret} onChange={e => setTgWire({ ...tgWire, secret: e.target.value })} placeholder="A-Za-z0-9_- 1-256 chars" /></div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><button type="submit" className="pl-btn pl-btn-primary pl-btn-sm" disabled={eps.length === 0}>Set webhook</button><button type="button" className="pl-btn pl-btn-secondary pl-btn-sm" onClick={tgLoadInfo}>Check status</button><button type="button" className="pl-btn pl-btn-ghost pl-btn-sm" style={{ color: "var(--danger)" }} onClick={tgDelete}>Delete webhook</button></div>
+          </form>
+          {tgInfo && <div className="pl-mono" style={{ fontSize: 11, background: "var(--bg-input)", padding: 10, borderRadius: 8, border: "1px solid var(--border)", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{JSON.stringify(tgInfo, null, 2)}</div>}
+        </div>
+        <div className="pl-card" style={{ padding: 0, overflow: "hidden" }}>{tgLinks.length === 0 ? <div className="pl-empty">Belum ada bot yang terhubung.</div> :
+          <table className="pl-table"><thead><tr><th>Bot</th><th>Endpoint</th><th>URL</th><th>Last set</th></tr></thead><tbody>{tgLinks.map((l: any) => <tr key={l.id}><td style={{ fontWeight: 500 }}>{l.connection_name}</td><td className="pl-mono" style={{ fontSize: 11 }}>{l.endpoint_name} · {l.public_identifier}</td><td className="pl-mono" style={{ fontSize: 11 }}>{l.telegram_url}</td><td style={{ fontSize: 11, color: "var(--text-muted)" }}>{l.last_set_at ? new Date(l.last_set_at).toLocaleString() : "-"}</td></tr>)}</tbody></table>}</div>
+      </div>
     ) : (
       <div className="pl-card" style={{ padding: 0, overflow: "hidden" }}>{events.length === 0 ? <div className="pl-empty">No events yet. POST to /hooks/:publicIdentifier</div> :
         <div>

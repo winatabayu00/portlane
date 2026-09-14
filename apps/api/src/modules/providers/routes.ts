@@ -191,11 +191,37 @@ app.post("/api/v1/tenants/:tenantId/provider-connections", async (req, reply) =>
     }
     try {
       const result = await setTelegramWebhook(loaded.token, hookUrl, secretToken);
+      await pool.query(
+        `INSERT INTO telegram_webhook_links (id,tenant_id,provider_connection_id,webhook_endpoint_id,telegram_url,last_set_at,updated_at)
+         VALUES ($1,$2,$3,$4,$5,NOW(),NOW())
+         ON CONFLICT (provider_connection_id,webhook_endpoint_id)
+         DO UPDATE SET telegram_url=EXCLUDED.telegram_url, last_set_at=NOW(), updated_at=NOW()`,
+        [id("tgl"), tenantId, loaded.conn.id, endpoint.id, hookUrl]
+      );
       await pool.query("INSERT INTO audit_logs (id,tenant_id,actor_type,actor_id,action,target_type,target_id) VALUES ($1,$2,$3,$4,$5,$6,$7)", [id("aud"), tenantId, "user", user.userId, "telegram.webhook_set", "webhook_endpoint", endpoint.id]);
       return reply.send(success({ ok: true, url: hookUrl, result }, String(req.id)));
     } catch (e: unknown) {
       return telegramRouteError(reply, req, e);
     }
+  });
+
+  app.get("/api/v1/tenants/:tenantId/telegram/webhook-links", async (req, reply) => {
+    const user = await requireJwtUser(req, reply, config); if (!user) return;
+    const { tenantId } = req.params as any;
+    if (!await requireTenantMember(pool, user.userId, tenantId, reply, req)) return;
+    const { connectionId } = req.query as Record<string, string>;
+    const vals: unknown[] = [tenantId]; let extra = "";
+    if (connectionId) { vals.push(connectionId); extra = "AND l.provider_connection_id=$2"; }
+    const r = await pool.query(
+      `SELECT l.id,l.provider_connection_id,l.webhook_endpoint_id,l.telegram_url,l.last_set_at,
+              c.name AS connection_name,e.name AS endpoint_name,e.public_identifier
+       FROM telegram_webhook_links l
+       JOIN provider_connections c ON c.id=l.provider_connection_id AND c.tenant_id=$1
+       JOIN webhook_endpoints e ON e.id=l.webhook_endpoint_id AND e.tenant_id=$1
+       WHERE l.tenant_id=$1 ${extra} ORDER BY l.last_set_at DESC`,
+      vals
+    );
+    return reply.send(success(r.rows, String(req.id)));
   });
 
   app.get("/api/v1/tenants/:tenantId/telegram/webhook-info", async (req, reply) => {
@@ -229,6 +255,7 @@ app.post("/api/v1/tenants/:tenantId/provider-connections", async (req, reply) =>
     if (loaded.error === "BAD_CREDS") return reply.status(422).send(errorBody("VALIDATION_ERROR", "Connection credentials unreadable.", String(req.id)));
     try {
       const result = await deleteTelegramWebhook(loaded.token, body.drop_pending_updates ?? false);
+      await pool.query("DELETE FROM telegram_webhook_links WHERE tenant_id=$1 AND provider_connection_id=$2", [tenantId, loaded.conn.id]);
       await pool.query("INSERT INTO audit_logs (id,tenant_id,actor_type,actor_id,action,target_type,target_id) VALUES ($1,$2,$3,$4,$5,$6,$7)", [id("aud"), tenantId, "user", user.userId, "telegram.webhook_deleted", "provider_connection", loaded.conn.id]);
       return reply.send(success({ ok: true, result }, String(req.id)));
     } catch (e: unknown) {
