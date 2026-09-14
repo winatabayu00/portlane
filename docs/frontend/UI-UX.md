@@ -95,19 +95,17 @@ Show:
 
 ## 7. Webhooks
 
-Tabs: Endpoints | Events | Telegram.
+Single-flow layout (no tabs), user POV:
 
-Endpoints tab is a list (no header create button):
+- Public readiness banner (plain language: "Siap menerima pesan" / "Belum bisa dihubungi dari internet").
+- Telegram wizard card: stepper Pilih bot → Pilih penerima → Aktifkan, with per-connection match/mismatch/pending diagnosis and technical details collapsed.
+- Linked bots table (bot, endpoint, last set).
+- Endpoints table: name, public URL (copy), forwarding target ("hanya disimpan" when none), key (`Secret ●`/`HMAC ●`/`Tanpa kunci` via `has_secret` + `signature_mode`), status.
+- Actions per endpoint: Sambungkan bot (scrolls to wizard + preselects), Edit (name/forwarding URL/mode kunci/rotasi secret/status), Tes (test-forward, only when forwarding URL set, `x-portlane-test` flag, audit only), IP allowlist, Delete (confirm).
+- Creation entry point: wizard step 2 ("Baru"/"Buat penerima") opens the Create Endpoint modal (name + optional forwarding URL + mode kunci + optional secret); secret baru tampil sekali via `_oneTimeSecret` banner (copy + dismiss).
+- Edit endpoint: mode kunci (`none`/`hmac_sha256`) + rotasi secret (kosongkan = tetap lama); secret baru tampil sekali via `_oneTimeSecret` banner.
 
-- name
-- public endpoint identifier
-- status
-- security mode
-- IP allowlist count
-
-Actions per endpoint: Edit (name/forwarding URL/status), IP allowlist, Delete (confirm).
-
-Creation entry point: Telegram tab step 2 ("Baru"/"Buat endpoint") opens the Create Endpoint modal (name + optional forwarding URL); the new endpoint is auto-selected for bot wiring.
+Webhook event detail (drawer: `payload_json` ter-redact + forward attempts + `request_id,source_ip,method,safe_headers_json,status,received_at`):
 
 Webhook event detail (drawer: `payload_json` ter-redact + forward attempts + `request_id,source_ip,method,safe_headers_json,status,received_at`):
 

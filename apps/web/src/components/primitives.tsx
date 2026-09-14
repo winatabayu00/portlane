@@ -11,7 +11,7 @@ export function Spark({ color = "var(--accent)", values }: { color?: string; val
 
 export function StatusBadge({ status }: { status: string }) {
   const s = status.toLowerCase();
-  const map: Record<string, string> = { delivered: "delivered", failed: "failed", dead: "failed", retrying: "queued", queued: "queued", processing: "processing", connected: "connected", active: "delivered", healthy: "delivered", degraded: "queued", disabled: "failed", revoked: "failed" };
+  const map: Record<string, string> = { delivered: "delivered", failed: "failed", dead: "failed", retrying: "queued", queued: "queued", processing: "processing", connected: "connected", active: "delivered", healthy: "delivered", degraded: "queued", disabled: "failed", revoked: "failed", aktif: "delivered", nonaktif: "failed", diterima: "queued", diteruskan: "delivered", gagal: "failed", terhubung: "delivered" };
   const k = map[s] ?? "queued";
   const dot: Record<string, string> = { delivered: "var(--success)", failed: "var(--danger)", queued: "var(--warning)", processing: "#A855F7", connected: "var(--success)" };
   return <span className={`pl-status pl-status-${k}`}><span className="pl-status-dot" style={{ background: dot[k] ?? "#737373" }} />{status}</span>;

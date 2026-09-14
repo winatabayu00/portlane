@@ -230,10 +230,11 @@ Headers: `x-webhook-signature`/`x-signature` (`sha256=` prefix) atau `x-webhook-
 
 Semua tenant-scoped: `/tenants/:tenantId/webhook-endpoints...`.
 
-### GET /tenants/:tenantId/webhook-endpoints
+### GET /tenants/:tenantId/webhook-endpoints (row: `has_secret` boolean, tanpa secret plaintext)
 ### POST /tenants/:tenantId/webhook-endpoints (return `_oneTimeSecret` sekali)
-### PATCH /tenants/:tenantId/webhook-endpoints/:id
+### PATCH /tenants/:tenantId/webhook-endpoints/:id (rotasi secret → return `_oneTimeSecret` sekali)
 ### DELETE /tenants/:tenantId/webhook-endpoints/:id (`204`)
+### POST /tenants/:tenantId/webhook-endpoints/:id/test-forward (`10/min`; body `{payload?}`, header `x-portlane-test: true`, audit `webhook_endpoint.test_forward`, tanpa event/attempt)
 ### GET /tenants/:tenantId/webhooks/public-status
 
 Public inbound readiness untuk UI: return `{public_base_url, ready}` dari `PORTLANE_PUBLIC_BASE_URL` (tanpa secret). `ready=false` = Telegram/external belum bisa callback ke sini.

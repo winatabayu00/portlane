@@ -104,6 +104,7 @@ Rate limits should exist for:
 - login/auth endpoints (10/min per IP)
 - public webhook endpoints (120/min)
 - provider test endpoints (10/min)
+- webhook test-forward (10/min per user; test-labeled, audit only)
 
 Aktual: Redis fixed-window `rl:{key}` INCR+PEXPIRE (shared multi-instance), fallback memory fail-open bila Redis down. `ponytail:` fixed window, bukan sliding; upgrade Lua sliding window bila abuse.
 

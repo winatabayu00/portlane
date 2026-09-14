@@ -10,6 +10,30 @@ import { makeRedisConnection } from "../../lib/redis-connection.js";
 export const FORWARD_QUEUE = "portlane-webhook-forwards";
 export type ForwardJob = { eventId: string };
 
+// Header builder tunggal untuk semua pengiriman forward (worker,
+// retry manual, test-forward): content-type, korelasi event/request,
+// flag test, extra headers tersanitasi, dan HMAC bila ada secret.
+// Extra header: kunci [a-z0-9-] saja, dinormalkan lowercase.
+export function buildForwardHeaders(
+  fwd: Record<string, unknown>,
+  opts: { eventId: string; requestId: string; bodyRaw: string; secret?: string | null; test?: boolean },
+): Record<string, string> {
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    "x-portlane-event-id": opts.eventId,
+    "x-portlane-request-id": opts.requestId,
+  };
+  if (opts.test) headers["x-portlane-test"] = "true";
+  const extra = fwd.headers as Record<string, string> | undefined;
+  if (extra && typeof extra === "object")
+    for (const [k, v] of Object.entries(extra))
+      if (typeof v === "string" && /^[a-z0-9-]+$/i.test(k)) headers[k.toLowerCase()] = v;
+  if (opts.secret)
+    headers["x-portlane-signature"] =
+      "sha256=" + crypto.createHmac("sha256", opts.secret).update(opts.bodyRaw).digest("hex");
+  return headers;
+}
+
 let forwardQueue: Queue<ForwardJob> | null = null;
 
 function conn(config: AppConfig) {
@@ -41,10 +65,9 @@ export function registerForwardWorker(config: AppConfig): Worker<ForwardJob> {
       try {
         await validateOutboundUrl(String(fwd.url));
         const bodyRaw = JSON.stringify(ev.payload_json ?? {});
-        const headers: Record<string, string> = { "content-type": "application/json", "x-portlane-event-id": eventId, "x-portlane-request-id": ev.request_id ?? "" };
-        const extra = fwd.headers as Record<string, string> | undefined;
-        if (extra && typeof extra === "object") for (const [k, v] of Object.entries(extra)) if (typeof v === "string" && /^[a-z0-9-]+$/i.test(k)) headers[k.toLowerCase()] = v;
-        if (endpoint.encrypted_secret) { try { const s = decrypt(endpoint.encrypted_secret, config.APP_ENCRYPTION_KEY || config.JWT_SECRET); headers["x-portlane-signature"] = "sha256=" + crypto.createHmac("sha256", s).update(bodyRaw).digest("hex"); } catch {} }
+        let secret: string | null = null;
+        if (endpoint.encrypted_secret) { try { secret = decrypt(endpoint.encrypted_secret, config.APP_ENCRYPTION_KEY || config.JWT_SECRET); } catch {} }
+        const headers = buildForwardHeaders(fwd, { eventId, requestId: ev.request_id ?? "", bodyRaw, secret });
         const timeoutMs = Math.min(15000, Math.max(1000, Number((fwd as Record<string, unknown>).timeout_ms ?? 8000)));
         const res = await fetch(String(fwd.url), { method: "POST", headers, body: bodyRaw, signal: AbortSignal.timeout(timeoutMs), redirect: "manual" });
         if (res.status >= 300 && res.status < 400) { await readCapped(res, 4096).catch(() => ""); throw new Error(`Forward blocked: redirect ${res.status}`); }
