@@ -5,17 +5,17 @@ const BASE = window.location.origin;
 function Code({ children, lang }: { children: string; lang?: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <div style={{ position: "relative", background: "#0D0D0D", border: "1px solid #242424", borderRadius: 10, overflow: "hidden" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", borderBottom: "1px solid #1E1E1E", background: "#101010" }}>
-        <span style={{ fontSize: 11, color: "#737373", fontFamily: "var(--font-mono)" }}>{lang ?? "bash"}</span>
+    <div style={{ position: "relative", background: "#0D0D0D", border: "1px solid #242424", borderRadius: 10, overflow: "hidden", minWidth: 0, maxWidth: "100%" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "8px 12px", borderBottom: "1px solid #1E1E1E", background: "#101010" }}>
+        <span style={{ fontSize: 11, color: "#737373", fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lang ?? "bash"}</span>
         <button
           onClick={async () => { await navigator.clipboard.writeText(children); setCopied(true); setTimeout(() => setCopied(false), 1200); }}
-          style={{ fontSize: 11, background: copied ? "#22C55E" : "#171717", color: copied ? "white" : "#A3A3A3", border: "1px solid #2A2A2A", borderRadius: 6, padding: "4px 8px", cursor: "pointer" }}
+          style={{ flexShrink: 0, fontSize: 11, background: copied ? "#22C55E" : "#171717", color: copied ? "white" : "#A3A3A3", border: "1px solid #2A2A2A", borderRadius: 6, padding: "4px 8px", cursor: "pointer" }}
         >
           {copied ? "Copied" : "Copy"}
         </button>
       </div>
-      <pre style={{ margin: 0, padding: "14px 16px", overflow: "auto", fontFamily: "var(--font-mono)", fontSize: 12.5, lineHeight: 1.6, color: "#E5E5E5", whiteSpace: "pre" }}>{children}</pre>
+      <pre style={{ margin: 0, padding: "14px 16px", overflow: "auto", maxWidth: "100%", fontFamily: "var(--font-mono)", fontSize: 12.5, lineHeight: 1.6, color: "#E5E5E5", whiteSpace: "pre" }}>{children}</pre>
     </div>
   );
 }
@@ -50,22 +50,23 @@ const NAV = [
 
 export default function Docs() {
   return (
-    <div style={{ minHeight: "100vh", background: "#070707", color: "#F5F5F5" }}>
+    <div className="docs-wrap" style={{ minHeight: "100vh", background: "#070707", color: "#F5F5F5", overflowX: "clip" }}>
+      <style>{`.docs-wrap section{overflow:hidden;min-width:0;box-sizing:border-box;scroll-margin-top:76px}.docs-wrap main,.docs-wrap div{min-width:0;box-sizing:border-box}.docs-wrap code{overflow-wrap:anywhere;word-break:break-word}.docs-wrap table{display:block;width:100%;max-width:100%;overflow-x:auto;border-collapse:collapse}.docs-wrap thead,.docs-wrap tbody{display:table;width:100%;min-width:600px}.docs-wrap th,.docs-wrap td{overflow-wrap:anywhere;word-break:break-word;vertical-align:top;text-align:left}.docs-wrap pre{max-width:100%;overflow:auto}.docs-wrap h1{overflow-wrap:anywhere}.docs-layout{display:grid;grid-template-columns:220px minmax(0,1fr)!important;gap:20px;max-width:none;margin:0;padding:20px 20px 40px;width:100%;box-sizing:border-box}.docs-grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:12px}.docs-grid2>div{min-width:0;overflow:hidden}.docs-topbar{max-width:none;margin:0;padding:14px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;box-sizing:border-box}.docs-base-url{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:38vw}@media(max-width:960px){.docs-layout{grid-template-columns:minmax(0,1fr)!important}.docs-side{display:none!important}.docs-grid2{grid-template-columns:minmax(0,1fr)!important}.docs-base-url{display:none}.docs-wrap section{padding:16px!important}}`}</style>
       <div style={{ position: "sticky", top: 0, zIndex: 20, background: "rgba(7,7,7,0.9)", backdropFilter: "blur(8px)", borderBottom: "1px solid #242424" }}>
-        <div style={{ maxWidth: 1200, margin: "0 auto", padding: "14px 20px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <div className="docs-topbar">
           <div style={{ width: 28, height: 28, borderRadius: 7, background: "#FF7A00", display: "grid", placeItems: "center", color: "white", fontWeight: 700, fontSize: 13 }}>P</div>
           <div style={{ fontWeight: 700, letterSpacing: -0.02 }}>PORTLANE</div>
           <span style={{ fontSize: 12, color: "#737373", borderLeft: "1px solid #242424", paddingLeft: 12, marginLeft: 4 }}>API Documentation</span>
           <Badge tone="green">Publik — tanpa login</Badge>
-          <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-            <span style={{ fontSize: 12, color: "#737373", fontFamily: "var(--font-mono)" }}>{BASE}</span>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center", minWidth: 0 }}>
+            <span className="docs-base-url" style={{ fontSize: 12, color: "#737373", fontFamily: "var(--font-mono)" }}>{BASE}</span>
             <a href="/" style={{ fontSize: 12, color: "#A3A3A3", border: "1px solid #242424", padding: "6px 10px", borderRadius: 8, textDecoration: "none", background: "#101010" }}>← Dashboard</a>
           </div>
         </div>
       </div>
 
-      <div style={{ maxWidth: 1200, margin: "0 auto", padding: "20px 20px 40px", display: "grid", gridTemplateColumns: "220px 1fr", gap: 20 }}>
-        <aside style={{ position: "sticky", top: 64, alignSelf: "start", maxHeight: "calc(100vh - 80px)", overflow: "auto", paddingRight: 8 }}>
+      <div className="docs-layout">
+        <aside className="docs-side" style={{ position: "sticky", top: 64, alignSelf: "start", maxHeight: "calc(100vh - 80px)", overflow: "auto", paddingRight: 8 }}>
           <div style={{ fontSize: 11, letterSpacing: 0.08, color: "#737373", fontWeight: 600, marginBottom: 8 }}>DAFTAR ISI</div>
           <nav style={{ display: "flex", flexDirection: "column", gap: 2 }}>
             {NAV.map((n) => (
@@ -88,7 +89,7 @@ export default function Docs() {
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
               <Badge tone="orange">Telegram SEND_MESSAGE</Badge><Badge tone="blue">Webhook RECEIVE_WEBHOOK</Badge><Badge>Idempotency per-tenant</Badge><Badge>SSRF guard</Badge><Badge>IP allowlist CIDR</Badge>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 16 }}>
+            <div className="docs-grid2" style={{ marginTop: 16 }}>
               <div style={{ background: "#0D0D0D", border: "1px solid #1E1E1E", borderRadius: 10, padding: 12 }}>
                 <div style={{ fontSize: 11, color: "#737373", fontWeight: 600 }}>ALUR TELEGRAM</div>
                 <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "#E5E5E5", marginTop: 6, lineHeight: 1.6 }}>Client → POST /api/v1/messages (Bearer pl_live_) → validasi destination active → simpan message + deliveries QUEUED → enqueue → worker → TelegramAdapter → https://api.telegram.org/bot&lt;token&gt;/sendMessage</div>
@@ -147,8 +148,8 @@ curl ${BASE}/api/v1/tenants/t_xxx/messages -H "Authorization: Bearer eyJ..."`}</
           <section id="envelope" style={{ background: "#101010", border: "1px solid #242424", borderRadius: 12, padding: 20 }}>
             <h2 style={{ margin: 0, fontSize: 16 }}>Response Envelope</h2>
             <p style={{ color: "#A3A3A3", fontSize: 12, margin: "6px 0 0" }}>Semua endpoint pakai format terpusat <code style={{ fontFamily: "var(--font-mono)" }}>ApiResponse</code> (apps/api/src/common/api-response.ts). Correlation ID ada di header dan body.</p>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
-              <div>
+            <div className="docs-grid2" style={{ marginTop: 12 }}>
+              <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Sukses</div>
                 <Code lang="json">{`{
   "rc": 200,
@@ -284,8 +285,8 @@ curl -X POST ${BASE}/api/v1/messages \\
       "metadata": { "severity": "critical" }
     }
   }'`}</Code>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                <div>
+              <div className="docs-grid2" style={{ marginTop: 0 }}>
+                <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>201 Created</div>
                   <Code lang="json">{`{
   "rc": 201, "status": "success",
