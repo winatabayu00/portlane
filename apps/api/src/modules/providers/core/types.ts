@@ -10,6 +10,12 @@ export interface ProviderAdapter {
   capabilities: ProviderCapability[];
   validateConnectionConfig(config: Record<string,unknown>, credentials: Record<string,unknown>): void;
   validateDestinationConfig(config: Record<string,unknown>): void;
+  // Optional async network policy check (SSRF). Core calls it generically so
+  // adding a provider never requires editing route logic (§36). Core owns
+  // retry decisions; adapters only classify errors via ProviderError.
+  verifyConnectionNetwork?(config: Record<string,unknown>, credentials: Record<string,unknown>): Promise<void>;
   send(input: ProviderSendInput): Promise<ProviderSendResult>;
   testConnection(credentials: Record<string,unknown>, config: Record<string,unknown>): Promise<{ ok: boolean; message?: string }>;
+  // Note: error mapping is done inline via `throw new ProviderError(...)`
+  // inside send(), which is the executable form of the documented mapError.
 }

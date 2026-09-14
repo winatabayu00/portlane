@@ -7,19 +7,14 @@ import { encryptCreds, decryptCreds } from "./core/crypto.js";
 import { getProvider, listProviders } from "./core/registry.js";
 import { checkRateLimit } from "../../lib/rateLimit.js";
 import { redisClient } from "../../redis.js";
-import { validateOutboundUrl, validateSmtpHost, validateSmtpPort } from "../../lib/ssrf.js";
-import { telegramProvider } from "./telegram/index.js";
-import { discordProvider } from "./discord/index.js";
-import { smtpProvider } from "./smtp/index.js";
-import { webhookProvider } from "./webhook/index.js";
+import { registerAllProviders } from "./index.js";
 import type { AppConfig } from "../../config.js";
 import { errorBody } from "../../errors.js";
 import { success } from "../../common/api-response.js";
 import { ResponseCode } from "../../common/response-code.enum.js";
 
-// register once
-import { registerProvider } from "./core/registry.js";
-registerProvider(telegramProvider); registerProvider(discordProvider); registerProvider(smtpProvider); registerProvider(webhookProvider);
+// register once (single source; worker.ts uses the same entry)
+registerAllProviders();
 
 export async function providerRoutes(app: FastifyInstance, config: AppConfig) {
   const pool = dbPool(config);
@@ -50,23 +45,13 @@ app.post("/api/v1/tenants/:tenantId/provider-connections", async (req, reply) =>
     const adapter = getProvider(body.provider_key);
     if(!adapter) return reply.status(422).send(errorBody("VALIDATION_ERROR","Unknown provider",String(req.id)));
     try { adapter.validateConnectionConfig(body.config as any, body.credentials as any); } catch(e:any){ return reply.status(422).send(errorBody("VALIDATION_ERROR", e.message, String(req.id))); }
-    if (body.provider_key === "webhook") {
-      const url = String((body.config as Record<string,unknown>).url ?? (body.credentials as any).url ?? "");
-      if (url) try { await validateOutboundUrl(url); } catch(e: unknown){ return reply.status(422).send(errorBody("VALIDATION_ERROR", `Webhook URL blocked by SSRF policy: ${String((e as Error).message)}`, String(req.id))); }
-    }
-    if (body.provider_key === "discord") {
-      const url = String((body.credentials as any).webhookUrl ?? "");
-      if (url) try { await validateOutboundUrl(url); } catch(e: unknown){ return reply.status(422).send(errorBody("VALIDATION_ERROR", `Discord URL blocked by SSRF policy: ${String((e as Error).message)}`, String(req.id))); }
-    }
-    if (body.provider_key === "smtp") {
-      try { await validateSmtpHost(String((body.credentials as any).host ?? "")); } catch(e: unknown){ return reply.status(422).send(errorBody("VALIDATION_ERROR", `SMTP host blocked by SSRF policy: ${String((e as Error).message)}`, String(req.id))); }
-      try { validateSmtpPort((body.credentials as any).port); } catch(e: unknown){ return reply.status(422).send(errorBody("VALIDATION_ERROR", String((e as Error).message), String(req.id))); }
-    }
+    // Provider-owned network policy (§6/§36): no per-provider branching here.
+    try { await adapter.verifyConnectionNetwork?.(body.config as any, body.credentials as any); } catch(e: unknown){ return reply.status(422).send(errorBody("VALIDATION_ERROR", `Network policy: ${String((e as Error).message)}`, String(req.id))); }
     const enc = encryptCreds(body.credentials as any, config.APP_ENCRYPTION_KEY || config.JWT_SECRET);
     const connId = id("conn");
     await pool.query("INSERT INTO provider_connections (id,tenant_id,provider_key,name,encrypted_credentials,config_json) VALUES ($1,$2,$3,$4,$5,$6)", [connId, tenantId, body.provider_key, body.name, enc, JSON.stringify(body.config)]);
     await pool.query("INSERT INTO audit_logs (id,tenant_id,actor_type,actor_id,action,target_type,target_id) VALUES ($1,$2,$3,$4,$5,$6,$7)", [id("aud"), tenantId,"user",user.userId,"provider_connection.created","provider_connection",connId]);
-    const row = (await pool.query("SELECT id,tenant_id,provider_key,name,config_json,status,created_at FROM provider_connections WHERE id=$1",[connId])).rows[0];
+    const row = (await pool.query("SELECT id,tenant_id,provider_key,name,config_json,status,created_at FROM provider_connections WHERE id=$1 AND tenant_id=$2",[connId, tenantId])).rows[0];
     return reply.status(201).send(success(row, String(req.id), ResponseCode.CREATED));
   });
 
@@ -79,22 +64,19 @@ app.post("/api/v1/tenants/:tenantId/provider-connections", async (req, reply) =>
     const body = z.object({ name: z.string().min(1).optional(), config: z.record(z.unknown()).optional(), credentials: z.record(z.unknown()).optional(), status: z.enum(["active","disabled"]).optional() }).parse(req.body);
     const cur = await pool.query("SELECT * FROM provider_connections WHERE id=$1 AND tenant_id=$2",[connId, tenantId]);
     if(!cur.rows.length) return reply.status(404).send(errorBody("NOT_FOUND","Connection not found",String(req.id)));
-    // SSRF check on webhook/discord URL or smtp host change
-    if (cur.rows[0].provider_key === "webhook" && (body.config || body.credentials)) {
+    // Provider-owned network policy on change (§6/§36): generic, no branching.
+    if (body.config || body.credentials) {
+      const patchAdapter = getProvider(cur.rows[0].provider_key);
       const nextConfig = (body.config ?? cur.rows[0].config_json) as Record<string,unknown>;
-      const nextCreds = (body.credentials ?? {}) as Record<string,unknown>;
-      const url = String(nextConfig.url ?? nextCreds.url ?? (cur.rows[0].config_json as Record<string,unknown>).url ?? "");
-      if (url) try { await validateOutboundUrl(url); } catch(e: unknown){ return reply.status(422).send(errorBody("VALIDATION_ERROR", `Webhook URL blocked by SSRF policy: ${String((e as Error).message)}`, String(req.id))); }
-    }
-    if (cur.rows[0].provider_key === "discord" && body.credentials) {
-      const url = String((body.credentials as Record<string,unknown>).webhookUrl ?? "");
-      if (url) try { await validateOutboundUrl(url); } catch(e: unknown){ return reply.status(422).send(errorBody("VALIDATION_ERROR", `Discord URL blocked by SSRF policy: ${String((e as Error).message)}`, String(req.id))); }
-    }
-    if (cur.rows[0].provider_key === "smtp" && body.credentials) {
-      const host = String((body.credentials as Record<string,unknown>).host ?? "");
-      if (host) try { await validateSmtpHost(host); } catch(e: unknown){ return reply.status(422).send(errorBody("VALIDATION_ERROR", `SMTP host blocked by SSRF policy: ${String((e as Error).message)}`, String(req.id))); }
-      const port = (body.credentials as Record<string,unknown>).port;
-      if (port !== undefined) try { validateSmtpPort(port); } catch(e: unknown){ return reply.status(422).send(errorBody("VALIDATION_ERROR", String((e as Error).message), String(req.id))); }
+      let nextCreds: Record<string,unknown>;
+      if (body.credentials) {
+        nextCreds = body.credentials as Record<string,unknown>;
+      } else if (cur.rows[0].provider_key === "webhook") {
+        nextCreds = {} as Record<string,unknown>;
+      } else {
+        nextCreds = {} as Record<string,unknown>;
+      }
+      try { await patchAdapter?.verifyConnectionNetwork?.(nextConfig, nextCreds); } catch(e: unknown){ return reply.status(422).send(errorBody("VALIDATION_ERROR", `Network policy: ${String((e as Error).message)}`, String(req.id))); }
     }
     const updates: string[]=[]; const vals:any[]=[]; let idx=1;
     if(body.name){ updates.push(`name=$${idx++}`); vals.push(body.name); }
@@ -107,7 +89,7 @@ app.post("/api/v1/tenants/:tenantId/provider-connections", async (req, reply) =>
     await pool.query(`UPDATE provider_connections SET ${updates.join(",")} WHERE id=$${idx++} AND tenant_id=$${idx++}`, vals);
     if (body.credentials) await pool.query("INSERT INTO audit_logs (id,tenant_id,actor_type,actor_id,action,target_type,target_id) VALUES ($1,$2,$3,$4,$5,$6,$7)", [id("aud"), tenantId, "user", user.userId, "provider_connection.credential_rotated", "provider_connection", connId]);
     if (body.name || body.config || body.status) await pool.query("INSERT INTO audit_logs (id,tenant_id,actor_type,actor_id,action,target_type,target_id) VALUES ($1,$2,$3,$4,$5,$6,$7)", [id("aud"), tenantId, "user", user.userId, "provider_connection.updated", "provider_connection", connId]);
-    const row=(await pool.query("SELECT id,tenant_id,provider_key,name,config_json,status,created_at,updated_at FROM provider_connections WHERE id=$1",[connId])).rows[0];
+    const row=(await pool.query("SELECT id,tenant_id,provider_key,name,config_json,status,created_at,updated_at FROM provider_connections WHERE id=$1 AND tenant_id=$2",[connId, tenantId])).rows[0];
     return reply.send(success(row, String(req.id)));
   });
 
@@ -115,7 +97,12 @@ app.post("/api/v1/tenants/:tenantId/provider-connections", async (req, reply) =>
     const user = await requireJwtUser(req, reply, config); if(!user) return;
     const { tenantId, connId } = req.params as any;
     if(!await requireTenantMember(pool, user.userId, tenantId, reply, req)) return;
-    await pool.query("DELETE FROM provider_connections WHERE id=$1 AND tenant_id=$2",[connId, tenantId]);
+    try{
+      await pool.query("DELETE FROM provider_connections WHERE id=$1 AND tenant_id=$2",[connId, tenantId]);
+    }catch(e:any){
+      if(e?.code==="23503") return reply.status(409).send(errorBody("CONFLICT","Connection has delivery history and cannot be deleted.",String(req.id)));
+      throw e;
+    }
     await pool.query("INSERT INTO audit_logs (id,tenant_id,actor_type,actor_id,action,target_type,target_id) VALUES ($1,$2,$3,$4,$5,$6,$7)", [id("aud"), tenantId, "user", user.userId, "provider_connection.deleted", "provider_connection", connId]);
     return reply.status(204).send();
   });

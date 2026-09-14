@@ -38,7 +38,7 @@ export async function destinationRoutes(app: FastifyInstance, config: AppConfig)
     const destId = id("dst");
     const destType = body.destination_type ?? pc.rows[0].provider_key;
     await pool.query("INSERT INTO destinations (id,tenant_id,provider_connection_id,name,destination_type,config_json) VALUES ($1,$2,$3,$4,$5,$6)", [destId, tenantId, body.provider_connection_id, body.name, destType, JSON.stringify(body.config)]);
-    const row = (await pool.query("SELECT * FROM destinations WHERE id=$1", [destId])).rows[0];
+    const row = (await pool.query("SELECT * FROM destinations WHERE id=$1 AND tenant_id=$2", [destId, tenantId])).rows[0];
     return reply.status(201).send(success(row, String(req.id), ResponseCode.CREATED));
   });
 
@@ -66,7 +66,7 @@ export async function destinationRoutes(app: FastifyInstance, config: AppConfig)
     updates.push("updated_at=NOW()");
     vals.push(destId, tenantId);
     await pool.query(`UPDATE destinations SET ${updates.join(",")} WHERE id=$${idx++} AND tenant_id=$${idx++}`, vals);
-    const row = (await pool.query("SELECT * FROM destinations WHERE id=$1", [destId])).rows[0];
+    const row = (await pool.query("SELECT * FROM destinations WHERE id=$1 AND tenant_id=$2", [destId, tenantId])).rows[0];
     return reply.send(success(row, String(req.id)));
   });
 
@@ -74,7 +74,12 @@ export async function destinationRoutes(app: FastifyInstance, config: AppConfig)
     const user = await requireJwtUser(req, reply, config); if (!user) return;
     const { tenantId, destId } = req.params as any;
     if (!await requireTenantMember(pool, user.userId, tenantId, reply, req)) return;
-    await pool.query("DELETE FROM destinations WHERE id=$1 AND tenant_id=$2", [destId, tenantId]);
+    try{
+      await pool.query("DELETE FROM destinations WHERE id=$1 AND tenant_id=$2", [destId, tenantId]);
+    }catch(e:any){
+      if(e?.code==="23503") return reply.status(409).send(errorBody("CONFLICT","Destination has delivery history and cannot be deleted.",String(req.id)));
+      throw e;
+    }
     return reply.status(204).send();
   });
 }

@@ -15,6 +15,11 @@ export const smtpProvider: ProviderAdapter = {
   validateDestinationConfig(cfg){
     if(!cfg.email && !cfg.address) throw new ProviderError("VALIDATION_ERROR","email required",false);
   },
+  async verifyConnectionNetwork(_cfg, creds){
+    const c = creds as any;
+    if(c.host) await validateSmtpHost(String(c.host));
+    if(c.port !== undefined) validateSmtpPort(c.port);
+  },
   async send({ message, destination, connection }){
     const c=connection.credentials as any;
     await validateSmtpHost(String(c.host ?? ""));

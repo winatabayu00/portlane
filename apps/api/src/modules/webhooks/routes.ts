@@ -14,7 +14,7 @@ import type { AppConfig } from "../../config.js";
 import { errorBody } from "../../errors.js";
 import { success } from "../../common/api-response.js";
 import { ResponseCode } from "../../common/response-code.enum.js";
-import { hashSecret, encrypt, decrypt, verifyHmacSha256 } from "../../lib/crypto.js";
+import { hashSecret, encrypt, decrypt, verifyHmacSha256, timingSafeEqual } from "../../lib/crypto.js";
 
 function genPublicId(): string { return "wh_" + crypto.randomBytes(12).toString("hex"); }
 
@@ -46,7 +46,7 @@ export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
     }
     await pool.query("INSERT INTO webhook_endpoints (id,tenant_id,name,public_identifier,secret_hash,encrypted_secret,signature_mode,forwarding_config_json) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)", [wid, tenantId, body.name, pub, secretHash, encSecret, body.signature_mode, JSON.stringify(fwd)]);
     await pool.query("INSERT INTO audit_logs (id,tenant_id,actor_type,actor_id,action,target_type,target_id) VALUES ($1,$2,$3,$4,$5,$6,$7)", [id("aud"), tenantId, "user", user.userId, "webhook_endpoint.created", "webhook_endpoint", wid]);
-    const row = (await pool.query("SELECT id,tenant_id,name,public_identifier,signature_mode,status,forwarding_config_json,created_at FROM webhook_endpoints WHERE id=$1", [wid])).rows[0];
+    const row = (await pool.query("SELECT id,tenant_id,name,public_identifier,signature_mode,status,forwarding_config_json,created_at FROM webhook_endpoints WHERE id=$1 AND tenant_id=$2", [wid, tenantId])).rows[0];
     return reply.status(201).send(success({ ...row, secret: body.secret ? "***" : undefined, _oneTimeSecret: body.secret ?? undefined }, String(req.id), ResponseCode.CREATED));
   });
 
@@ -76,7 +76,7 @@ export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
     await pool.query(`UPDATE webhook_endpoints SET ${updates.join(",")} WHERE id=$${idx++} AND tenant_id=$${idx++}`, vals);
     if (body.secret) await pool.query("INSERT INTO audit_logs (id,tenant_id,actor_type,actor_id,action,target_type,target_id) VALUES ($1,$2,$3,$4,$5,$6,$7)", [id("aud"), tenantId, "user", user.userId, "webhook_endpoint.secret_rotated", "webhook_endpoint", endpointId]);
     if (body.status || body.name || body.signature_mode || body.forwarding_url !== undefined) await pool.query("INSERT INTO audit_logs (id,tenant_id,actor_type,actor_id,action,target_type,target_id) VALUES ($1,$2,$3,$4,$5,$6,$7)", [id("aud"), tenantId, "user", user.userId, "webhook_endpoint.updated", "webhook_endpoint", endpointId]);
-    const row = (await pool.query("SELECT id,tenant_id,name,public_identifier,signature_mode,status,forwarding_config_json,created_at,updated_at FROM webhook_endpoints WHERE id=$1", [endpointId])).rows[0];
+    const row = (await pool.query("SELECT id,tenant_id,name,public_identifier,signature_mode,status,forwarding_config_json,created_at,updated_at FROM webhook_endpoints WHERE id=$1 AND tenant_id=$2", [endpointId, tenantId])).rows[0];
     return reply.send(success(row, String(req.id)));
   });
 
@@ -106,7 +106,7 @@ export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
     const entryId = id("ip");
     await pool.query("INSERT INTO ip_allowlist_entries (id,tenant_id,scope_type,scope_id,cidr,description) VALUES ($1,$2,$3,$4,$5,$6)", [entryId, tenantId, "WEBHOOK_ENDPOINT", endpointId, cidr, body.description ?? null]);
     await pool.query("INSERT INTO audit_logs (id,tenant_id,actor_type,actor_id,action,target_type,target_id,metadata_json) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)", [id("aud"), tenantId, "user", user.userId, "webhook_endpoint.ip_allowlist_added", "webhook_endpoint", endpointId, JSON.stringify({ cidr })]);
-    const row = (await pool.query("SELECT * FROM ip_allowlist_entries WHERE id=$1", [entryId])).rows[0];
+    const row = (await pool.query("SELECT * FROM ip_allowlist_entries WHERE id=$1 AND tenant_id=$2 AND scope_id=$3", [entryId, tenantId, endpointId])).rows[0];
     return reply.status(201).send(success(row, String(req.id), ResponseCode.CREATED));
   });
 
@@ -146,7 +146,7 @@ export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
     if (!await requireTenantMember(pool, user.userId, tenantId, reply, req)) return;
     const ev = await pool.query("SELECT * FROM webhook_events WHERE id=$1 AND tenant_id=$2", [eventId, tenantId]);
     if (!ev.rows.length) return reply.status(404).send(errorBody("NOT_FOUND","Webhook event not found.",String(req.id)));
-    const endpoint = await pool.query("SELECT * FROM webhook_endpoints WHERE id=$1", [ev.rows[0].webhook_endpoint_id]);
+    const endpoint = await pool.query("SELECT * FROM webhook_endpoints WHERE id=$1 AND tenant_id=$2", [ev.rows[0].webhook_endpoint_id, tenantId]);
     if (!endpoint.rows.length) return reply.status(404).send(errorBody("NOT_FOUND","Endpoint not found.",String(req.id)));
     const fwd = endpoint.rows[0].forwarding_config_json as Record<string, unknown>;
     if (!fwd.url) return reply.status(422).send(errorBody("VALIDATION_ERROR","No forwarding url.",String(req.id)));
@@ -198,8 +198,8 @@ export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
       try { secret = decrypt(endpoint.encrypted_secret, config.APP_ENCRYPTION_KEY || config.JWT_SECRET); } catch { secret = endpoint.encrypted_secret; }
       if (!verifyHmacSha256(bodyRaw, sig, secret)) return reply.status(401).send(errorBody("UNAUTHORIZED","Invalid signature.",String(req.id)));
     } else if (endpoint.secret_hash) {
-      const provided = (req.headers["x-webhook-secret"] ?? (req.headers.authorization as string)?.replace("Bearer ","") ?? "") as string;
-      if (!provided || hashSecret(provided) !== endpoint.secret_hash) return reply.status(401).send(errorBody("UNAUTHORIZED","Invalid secret.",String(req.id)));
+      const provided = (req.headers["x-webhook-secret"] ?? "") as string;
+      if (!provided || !timingSafeEqual(hashSecret(provided), endpoint.secret_hash)) return reply.status(401).send(errorBody("UNAUTHORIZED","Invalid secret.",String(req.id)));
     }
 
     const safeHeaders = redactHeaders(req.headers as Record<string,string>);

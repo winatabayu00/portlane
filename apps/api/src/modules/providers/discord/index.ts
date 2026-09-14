@@ -10,6 +10,10 @@ export const discordProvider: ProviderAdapter = {
     if(anyCreds.webhookUrl) try{ new URL(anyCreds.webhookUrl);}catch{ throw new ProviderError("VALIDATION_ERROR","invalid webhookUrl",false);}
   },
   validateDestinationConfig(_cfg){},
+  async verifyConnectionNetwork(_cfg, creds){
+    const url = String((creds as any).webhookUrl ?? "");
+    if(url) await validateOutboundUrl(url);
+  },
   async send({ message, connection }){
     const creds=connection.credentials as any;
     const content = message.subject ? `**${message.subject}**\n${message.body}` : message.body;

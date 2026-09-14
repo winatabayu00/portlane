@@ -2,16 +2,9 @@ import { loadConfig } from "./config.js";
 import { registerM00Worker } from "./queue.js";
 import { registerDeliveryWorker } from "./modules/delivery/worker.js";
 import { registerForwardWorker } from "./modules/webhooks/forward.js";
-import { registerProvider } from "./modules/providers/core/registry.js";
-import { telegramProvider } from "./modules/providers/telegram/index.js";
-import { discordProvider } from "./modules/providers/discord/index.js";
-import { smtpProvider } from "./modules/providers/smtp/index.js";
-import { webhookProvider } from "./modules/providers/webhook/index.js";
+import { registerAllProviders } from "./modules/providers/index.js";
 
-registerProvider(telegramProvider);
-registerProvider(discordProvider);
-registerProvider(smtpProvider);
-registerProvider(webhookProvider);
+registerAllProviders();
 
 const config = loadConfig();
 const workers = [registerM00Worker(config), registerDeliveryWorker(config), registerForwardWorker(config)];

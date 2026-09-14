@@ -157,7 +157,7 @@ export async function apiKeyRoutes(app: FastifyInstance, config: AppConfig) {
     const entryId = id("ip");
     await pool.query("INSERT INTO ip_allowlist_entries (id,tenant_id,scope_type,scope_id,cidr,description) VALUES ($1,$2,$3,$4,$5,$6)", [entryId, tenantId, "API_KEY", keyId, cidr, body.description ?? null]);
     await pool.query("INSERT INTO audit_logs (id,tenant_id,actor_type,actor_id,action,target_type,target_id,metadata_json) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)", [id("aud"), tenantId, "user", user.userId, "api_key.ip_allowlist_added", "api_key", keyId, JSON.stringify({ cidr })]);
-    const row = (await pool.query("SELECT * FROM ip_allowlist_entries WHERE id=$1", [entryId])).rows[0];
+    const row = (await pool.query("SELECT * FROM ip_allowlist_entries WHERE id=$1 AND tenant_id=$2 AND scope_id=$3", [entryId, tenantId, keyId])).rows[0];
     return reply.status(201).send(success(row, String(req.id), ResponseCode.CREATED));
   });
 
@@ -192,6 +192,7 @@ export async function resolveApiKey(pool: any, bearer: string): Promise<any|null
   const hash = hashSecret(secret);
   const a = Buffer.from(hash), b = Buffer.from(row.secret_hash);
   if (a.length !== b.length || !crypto.timingSafeEqual(a,b)) return null;
-  await pool.query("UPDATE api_keys SET last_used_at=NOW() WHERE id=$1", [row.id]);
+  // last_used_at is updated by the caller after IP/rate/scope gates pass,
+  // so blocked attempts don't pollute the signal.
   return row;
 }

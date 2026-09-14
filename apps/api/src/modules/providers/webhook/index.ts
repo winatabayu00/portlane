@@ -10,6 +10,10 @@ export const webhookProvider: ProviderAdapter = {
     try{ new URL(c.url);}catch{ throw new ProviderError("VALIDATION_ERROR","invalid url",false);}
   },
   validateDestinationConfig(_cfg){},
+  async verifyConnectionNetwork(cfg, creds){
+    const url = String((cfg as any).url ?? (creds as any).url ?? "");
+    if(url) await validateOutboundUrl(url);
+  },
   async send({ message, connection }){
     const cfg=connection.config as any;
     const creds=connection.credentials as any;

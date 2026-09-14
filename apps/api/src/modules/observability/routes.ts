@@ -12,7 +12,15 @@ export async function observabilityRoutes(app: FastifyInstance, config: AppConfi
     const user = await requireJwtUser(req, reply, config); if (!user) return;
     const { tenantId } = req.params as any;
     if (!await requireTenantMember(pool, user.userId, tenantId, reply, req)) return;
-    const [msgToday, delivered, failed, queued, providers, webhooks, recentFailures] = await Promise.all([
+    // Range-aware operational summary. Existing top-level counters are kept
+    // verbatim for backward compatibility (§41); `activity`, `provider_mix`
+    // and `queue` are additive.
+    const range = (req.query as Record<string, string>).range === "24h" ? "24h"
+      : (req.query as Record<string, string>).range === "30d" ? "30d" : "7d";
+    const trunc = range === "24h" ? "hour" : "day";
+    const interval = range === "24h" ? "1 day" : range === "30d" ? "30 days" : "7 days";
+    const buckets = range === "24h" ? 24 : range === "30d" ? 30 : 7;
+    const [msgToday, delivered, failed, queued, providers, webhooks, recentFailures, queueRows, activityRows, mixRows] = await Promise.all([
       pool.query("SELECT COUNT(*) FROM messages WHERE tenant_id=$1 AND created_at > NOW() - INTERVAL '1 day'", [tenantId]),
       pool.query("SELECT COUNT(*) FROM deliveries WHERE tenant_id=$1 AND status='DELIVERED'", [tenantId]),
       pool.query("SELECT COUNT(*) FROM deliveries WHERE tenant_id=$1 AND status IN ('FAILED','DEAD')", [tenantId]),
@@ -20,7 +28,43 @@ export async function observabilityRoutes(app: FastifyInstance, config: AppConfi
       pool.query("SELECT COUNT(*) FROM provider_connections WHERE tenant_id=$1 AND status='active'", [tenantId]),
       pool.query("SELECT COUNT(*) FROM webhook_events WHERE tenant_id=$1 AND received_at > NOW() - INTERVAL '1 day'", [tenantId]),
       pool.query("SELECT id, destination_id, last_error_code, last_error_message, updated_at FROM deliveries WHERE tenant_id=$1 AND status IN ('FAILED','DEAD') ORDER BY updated_at DESC LIMIT 10", [tenantId]),
+      pool.query(
+        `SELECT
+           COUNT(*) FILTER (WHERE status='QUEUED')::int AS queued,
+           COUNT(*) FILTER (WHERE status='PROCESSING')::int AS processing,
+           COUNT(*) FILTER (WHERE status='RETRYING')::int AS retrying,
+           COUNT(*) FILTER (WHERE status='DEAD')::int AS dead
+         FROM deliveries WHERE tenant_id=$1`, [tenantId]),
+      pool.query(
+        `SELECT date_trunc($1, created_at) AS bucket,
+           COUNT(*) FILTER (WHERE status='DELIVERED')::int AS delivered,
+           COUNT(*) FILTER (WHERE status IN ('FAILED','DEAD'))::int AS failed
+         FROM deliveries WHERE tenant_id=$2 AND created_at > NOW() - $3::interval
+         GROUP BY 1 ORDER BY 1`, [trunc, tenantId, interval]),
+      pool.query(
+        `SELECT COALESCE(pc.provider_key,'unknown') AS provider_key, COUNT(*)::int AS count
+         FROM deliveries d LEFT JOIN provider_connections pc ON pc.id=d.provider_connection_id
+         WHERE d.tenant_id=$1 AND d.created_at > NOW() - $2::interval
+         GROUP BY 1 ORDER BY 2 DESC`, [tenantId, interval]),
     ]);
+    // Fill missing buckets with zeros so charts never mislead (§39).
+    // Buckets are generated in UTC to match date_trunc boundaries.
+    const byBucket = new Map<string, { delivered: number; failed: number }>();
+    for (const r of activityRows.rows) byBucket.set(new Date(r.bucket).toISOString(), { delivered: r.delivered, failed: r.failed });
+    const now = new Date();
+    const activity: { bucket: string; delivered: number; failed: number }[] = [];
+    for (let i = buckets - 1; i >= 0; i--) {
+      const d = new Date(now);
+      if (trunc === "hour") { d.setUTCMinutes(0, 0, 0); d.setUTCHours(d.getUTCHours() - i); }
+      else { d.setUTCHours(0, 0, 0, 0); d.setUTCDate(d.getUTCDate() - i); }
+      const key = d.toISOString();
+      const hit = byBucket.get(key) ?? { delivered: 0, failed: 0 };
+      activity.push({ bucket: key, delivered: hit.delivered, failed: hit.failed });
+    }
+    const mixTotal = mixRows.rows.reduce((a: number, r: { count: number }) => a + r.count, 0) || 1;
+    const provider_mix = mixRows.rows.map((r: { provider_key: string; count: number }) => ({
+      provider_key: r.provider_key, count: r.count, pct: Math.round((r.count / mixTotal) * 1000) / 10,
+    }));
     return reply.send(success({
         messages_today: parseInt(msgToday.rows[0].count, 10),
         delivered: parseInt(delivered.rows[0].count, 10),
@@ -29,6 +73,9 @@ export async function observabilityRoutes(app: FastifyInstance, config: AppConfi
         active_providers: parseInt(providers.rows[0].count, 10),
         webhooks_received_today: parseInt(webhooks.rows[0].count, 10),
         recent_failures: recentFailures.rows,
+        queue: queueRows.rows[0],
+        activity,
+        provider_mix,
       }, String(req.id)));
   });
 

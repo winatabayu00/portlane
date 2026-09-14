@@ -33,7 +33,7 @@ export function registerForwardWorker(config: AppConfig): Worker<ForwardJob> {
       const { eventId } = job.data;
       const ev = (await pool.query("SELECT * FROM webhook_events WHERE id=$1", [eventId])).rows[0];
       if (!ev) return { skipped: true };
-      const endpoint = (await pool.query("SELECT * FROM webhook_endpoints WHERE id=$1", [ev.webhook_endpoint_id])).rows[0];
+      const endpoint = (await pool.query("SELECT * FROM webhook_endpoints WHERE id=$1 AND tenant_id=$2", [ev.webhook_endpoint_id, ev.tenant_id])).rows[0];
       if (!endpoint) return { skipped: true };
       const fwd = endpoint.forwarding_config_json as Record<string, unknown>;
       if (!fwd?.url) return { skipped: true };
