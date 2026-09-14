@@ -12,27 +12,26 @@ Related: [documentation index](../../README.md)
 6. Resolve tenant.
 7. Validate all destination ownership.
 8. Check idempotency key (machine path saja; dashboard JWT tanpa check).
-9. Persist message.
-10. Persist one delivery per destination.
-11. Enqueue each delivery (tanpa transaksi; gagal enqueue → `500` setelah insert parsial).
-12. Return message + delivery summary.
+9. Persist message + deliveries dalam satu transaksi (`BEGIN/COMMIT`).
+10. Idempotency race-safe: `ON CONFLICT (tenant_id,api_key_id,idempotency_key) DO NOTHING` + replay path.
+11. Enqueue tiap delivery setelah COMMIT; queue down → `503`, baris tetap `QUEUED` dan bisa manual retry (tanpa fan-out parsial).
+12. `last_used_at` API key di-update setelah auth + IP + rate gates lolos.
+13. Return message + delivery summary.
 
 ## 2. Worker Processing
 
 For each queued delivery:
 
 1. Atomically claim delivery (`QUEUED/RETRYING` → `PROCESSING`).
-2. Resolve provider connection.
-3. Validate connection is active (cek `dest.status` belum ada — gap).
-4. Resolve provider adapter.
+2. Resolve message, provider connection, destination — semua tenant-scoped ke delivery (`AND tenant_id`).
+3. Validate connection aktif + destination aktif.
+4. Resolve provider adapter via registry.
 5. Invoke adapter.
-6. Record attempt.
+6. Record attempt (`safe_response` ter-redact).
 7. On success, set `DELIVERED`.
-8. On retryable failure, schedule retry (`[0,5s,30s,120s,600s]`, max 5).
-9. On permanent failure, set `FAILED` (bukan `DEAD` — beda spec).
+8. On retryable failure, schedule retry (`[0,5s,30s,120s,600s]`, max 5; retry pertama setelah failure = 5s karena attempt_count sudah increment saat claim).
+9. On permanent failure, set `FAILED` (`DEAD` khusus untuk retry exhaustion; keduanya terminal dan diobservasi bersama).
 10. On retry exhaustion, set `DEAD`.
-
-Worker query tanpa filter `tenant_id` (gap tenant-scope).
 
 ## 3. Retry Policy
 
@@ -67,6 +66,11 @@ Usually non-retryable:
 
 Manual retry creates a new delivery attempt but preserves the original delivery history.
 
+Gate: tenant ownership + status `FAILED/DEAD/RETRYING` (else `409`) +
+provider connection dan destination harus `active` (else `422`) + update
+kondisional `WHERE status IN (...)` agar race dengan worker aman. Enqueue
+gagal → `503`, baris tetap `QUEUED`.
+
 If desired later, a cloned delivery may be created instead, but V1 should keep the model simple.
 
 ## 5. Duplicate Protection
@@ -74,3 +78,7 @@ If desired later, a cloned delivery may be created instead, but V1 should keep t
 Workers must be safe under at-least-once queue semantics.
 
 A delivery job may execute more than once, so state transitions and provider calls should be protected with locking/idempotency where feasible.
+
+Aktual: claim atomik `UPDATE ... WHERE status IN (...) RETURNING` +
+`UNIQUE(delivery_id,attempt_number)` (006) sehingga race duplikat menjadi
+error keras, bukan korupsi histori diam-diam.

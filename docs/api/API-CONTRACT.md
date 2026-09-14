@@ -108,7 +108,10 @@ Semua tenant-scoped: `/tenants/:tenantId/provider-connections...`.
 
 ### GET /tenants/:tenantId/overview, GET .../logs, GET .../deliveries
 
-Dashboard observability.
+Dashboard observability. `GET .../overview?range=24h|7d|30d` (default `7d`)
+adds `activity` (bucketed delivered/failed, zero-filled), `provider_mix`
+(real counts by `provider_key` with `pct`), and `queue`
+(`queued/processing/retrying/dead`). Base counters unchanged.
 
 ### GET /providers (public)
 
@@ -122,7 +125,7 @@ Returns installed provider definitions and capabilities.
 
 ### DELETE /tenants/:tenantId/provider-connections/:id (`204`)
 
-Dibatasi `RESTRICT` bila dipakai deliveries.
+Dibatasi `RESTRICT` bila dipakai deliveries → `409` bila ada histori.
 
 ### POST /tenants/:tenantId/provider-connections/:id/test (10/min)
 
@@ -136,7 +139,7 @@ Semua tenant-scoped: `/tenants/:tenantId/destinations...`.
 ### POST /tenants/:tenantId/destinations
 ### GET /tenants/:tenantId/destinations/:id
 ### PATCH /tenants/:tenantId/destinations/:id
-### DELETE /tenants/:tenantId/destinations/:id (`204`, `RESTRICT` bila dipakai)
+### DELETE /tenants/:tenantId/destinations/:id (`204`, `RESTRICT` bila dipakai → `409` bila ada histori)
 
 ## 7. API Keys
 

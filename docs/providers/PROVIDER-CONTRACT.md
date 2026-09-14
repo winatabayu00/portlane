@@ -28,6 +28,13 @@ interface ProviderAdapter {
 }
 ```
 
+Aktual (`core/types.ts`): `key`/`capabilities` sebagai property; validasi
+split `validateConnectionConfig` + `validateDestinationConfig`; network policy
+optional `verifyConnectionNetwork(config, credentials)` (SSRF milik adapter —
+route memanggilnya generik tanpa branching per-provider); `send(input:
+ProviderSendInput)` single-object; error mapping = `throw new
+ProviderError(...)` di dalam `send()` (bentuk executable dari `mapError`).
+
 ## 2. ProviderError
 
 Aktual (`core/types.ts`): `code, message, retryable, statusCode, raw`. Docs lama sebut `provider_status_code/safe_details` — map ke `statusCode/raw`.
