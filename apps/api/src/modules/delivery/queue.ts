@@ -1,14 +1,14 @@
 import { Queue } from "bullmq";
-import { Redis } from "ioredis";
 import type { AppConfig } from "../../config.js";
+import { makeRedisConnection } from "../../lib/redis-connection.js";
 
 export const DELIVERY_QUEUE = "portlane-deliveries";
 export type DeliveryJob = { deliveryId: string };
 
 let deliveryQueue: Queue<DeliveryJob> | null = null;
 
-function conn(config: AppConfig): Redis {
-  return new Redis(config.REDIS_URL, { maxRetriesPerRequest: null });
+function conn(config: AppConfig) {
+  return makeRedisConnection(config);
 }
 
 export async function enqueueDelivery(config: AppConfig, deliveryId: string): Promise<void> {

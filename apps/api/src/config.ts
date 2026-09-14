@@ -17,9 +17,14 @@ const configSchema = z.object({
   COOKIE_SECURE: z.string().default(""),
   JWT_SECRET: z.string().default(""),
   JWT_EXPIRES_IN: z.string().default("7d"),
+  WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(100).default(5),
+  DB_POOL_MAX: z.coerce.number().int().min(1).max(100).default(10),
+  REDIS_CLUSTER_URLS: z.string().default(""),
+  RETENTION_ENABLED: z.string().default("false"),
+  RETENTION_DAYS: z.coerce.number().int().min(7).max(3650).default(90),
 });
 
-export type AppConfig = Omit<z.infer<typeof configSchema>, "COOKIE_SECURE"> & { COOKIE_SECURE: boolean };
+export type AppConfig = Omit<z.infer<typeof configSchema>, "COOKIE_SECURE" | "RETENTION_ENABLED"> & { COOKIE_SECURE: boolean; RETENTION_ENABLED: boolean };
 
 function buildDatabaseUrlFromDbVars(env: NodeJS.ProcessEnv): string | undefined {
   const host = (env.DB_HOST as string) || "";
@@ -57,7 +62,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   else if (rawSecure === "true" || rawSecure === "1") cookieSecure = true;
   else if (rawSecure === "false" || rawSecure === "0") cookieSecure = false;
   else throw new Error("COOKIE_SECURE must be true/false (or empty for auto: Secure in production)");
-  const out: AppConfig = { ...cfg, COOKIE_SECURE: cookieSecure };
+  const rawRet = cfg.RETENTION_ENABLED.trim().toLowerCase();
+  if (!["", "true", "false", "1", "0"].includes(rawRet)) throw new Error("RETENTION_ENABLED must be true/false");
+  const out: AppConfig = { ...cfg, COOKIE_SECURE: cookieSecure, RETENTION_ENABLED: rawRet === "true" || rawRet === "1" };
   if (out.DATABASE_URL.includes("/ai_engineering_os")) {
     throw new Error("DATABASE_URL must not point to ai_engineering_os — use isolated DB 'portlane' (e.g. .../portlane)");
   }

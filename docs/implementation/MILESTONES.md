@@ -193,3 +193,122 @@ Required E2E scenarios:
 13. Reject cross-tenant resource access.
 
 Release only after these flows are verified.
+
+## M12 — V1.1 Performance Scale
+
+Goal: optimize throughput, scalability, and operational efficiency for production workloads.
+
+Deliverables:
+
+- Worker pool optimization
+  - Dynamic worker scaling based on queue depth
+  - Connection pooling per provider
+  - Batch processing for high-volume scenarios
+- Redis cluster support
+  - Cluster mode configuration
+  - Slot awareness and key distribution
+  - Failover handling
+- Data retention policies
+  - Automatic cleanup of old delivery attempts
+  - Configurable retention periods
+  - Archive strategy for compliance
+- Performance monitoring
+  - Worker throughput metrics
+  - Queue depth alerts
+  - Delivery latency tracking
+- Database optimization
+  - Index review and optimization
+  - Query performance tuning
+  - Connection pool sizing
+- Memory usage optimization
+  - Payload streaming for large messages
+  - Efficient serialization
+  - Garbage collection tuning
+
+Exit criteria:
+
+- 10x throughput improvement under load
+- Sub-100ms p95 delivery latency for standard messages
+- Automatic scaling handles 1000+ concurrent deliveries
+- Memory usage stable under sustained load
+- All performance tests pass
+- Production deployment verified
+
+## M13 — V1.2 Provider Expansion
+
+Goal: expand provider ecosystem with additional communication channels and provider management features.
+
+Deliverables:
+
+- New provider modules
+  - WhatsApp Business API
+  - SMS (Twilio, Vonage)
+  - Push notifications (Apple APNs, Google FCM)
+  - Slack webhook integration
+- Provider marketplace
+  - Community provider registry
+  - Provider discovery and installation
+  - Version management for providers
+- Provider management
+  - Provider connection templates
+  - Bulk import/export
+  - Health monitoring per provider
+- Provider capabilities
+  - Rich media support (images, files, audio)
+  - Interactive elements (buttons, menus)
+  - Localization and templating
+- Advanced delivery features
+  - Priority queues per provider
+  - Delivery time scheduling
+  - Fallback providers
+- Provider analytics
+  - Delivery success rates per provider
+  - Performance metrics
+  - Cost tracking (where applicable)
+
+Exit criteria:
+
+- 5 new provider implementations complete
+- Marketplace framework supports community providers
+- All providers pass integration tests
+- Provider health monitoring operational
+- Documentation for each new provider complete
+
+## M14 — V1.3 Platform Features
+
+Goal: enhance user experience with advanced messaging and operational capabilities.
+
+Deliverables:
+
+- Message templating
+  - Handlebars template engine integration
+  - Template management and versioning
+  - Dynamic content injection
+- Scheduled broadcasts
+  - Cron-based scheduling
+  - Recurring message campaigns
+  - Timezone-aware scheduling
+- Advanced analytics
+  - Delivery performance dashboard
+  - Failure rate analytics
+  - Provider comparison metrics
+- Enhanced user experience
+  - Bulk operations for messages/deliveries
+  - Export functionality for logs
+  - Real-time delivery status updates
+- Operational tools
+  - Delivery replay functionality
+  - Message preview and testing
+  - Provider connection testing suite
+- Integration capabilities
+  - Webhook event filtering
+  - Conditional forwarding rules
+  - Data transformation hooks
+
+Exit criteria:
+
+- Template system supports complex message structures
+- Scheduling works for all message types
+- Analytics dashboard provides actionable insights
+- All bulk operations perform efficiently
+- Integration framework tested with 3+ scenarios

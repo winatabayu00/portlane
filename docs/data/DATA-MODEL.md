@@ -201,7 +201,15 @@ Recommended unique constraint (code pakai full `UNIQUE`, bukan partial — JWT p
 
 Infra: `schema_migrations`, `m00_healthcheck` ada di `001_m00_baseline.sql`, bukan domain.
 
-Indexes: kode punya banyak index (`002`, `003`, `004`, `005`, `006`); docs hanya list UNIQUE. Lihat migrasi sebagai sumber. `005` tambah composite per pola query (`tenant_id+created_at`, `tenant_id+status`, `tenant_id+message_id`, `delivery_id+attempt_number`, `webhook_endpoint_id+received_at`) tanpa index PK redundan. `006` tambah `UNIQUE(delivery_id,attempt_number)` agar race duplikat attempt menjadi error keras. `api_keys.key_prefix` index non-unique + `LIMIT 1` — tabrakan mungkin. Validasi `scopes/allowed_*/expires_at` app-only, tanpa CHECK DB.
+Indexes: kode punya banyak index (`002`, `003`, `004`, `005`, `006`, `007`); docs hanya list UNIQUE. Lihat migrasi sebagai sumber. `005` tambah composite per pola query (`tenant_id+created_at`, `tenant_id+status`, `tenant_id+message_id`, `delivery_id+attempt_number`, `webhook_endpoint_id+received_at`) tanpa index PK redundan. `006` tambah `UNIQUE(delivery_id,attempt_number)` agar race duplikat attempt menjadi error keras. `007` tambah `delivery_attempts(tenant_id,created_at)` untuk latensi p50/p95 overview + `created_at` indexes untuk purge retensi. `api_keys.key_prefix` index non-unique + `LIMIT 1` — tabrakan mungkin. Validasi `scopes/allowed_*/expires_at` app-only, tanpa CHECK DB.
+
+## Retention (M12, opt-in default OFF)
+
+`RETENTION_ENABLED=false` = tanpa hapus. `=true` = worker purge harian
+(`RETENTION_DAYS`, min 7) hanya `delivery_attempts`,
+`webhook_forward_attempts`, `inbound_logs` — batched `LIMIT 1000` per tabel.
+Core history (`messages`, `deliveries`, `webhook_events`, `audit_logs`)
+tidak pernah di-purge.
 
 ## Tenant Boundary Rule
 

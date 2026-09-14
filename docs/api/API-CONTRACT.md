@@ -110,8 +110,10 @@ Semua tenant-scoped: `/tenants/:tenantId/provider-connections...`.
 
 Dashboard observability. `GET .../overview?range=24h|7d|30d` (default `7d`)
 adds `activity` (bucketed delivered/failed, zero-filled), `provider_mix`
-(real counts by `provider_key` with `pct`), and `queue`
-(`queued/processing/retrying/dead`). Base counters unchanged.
+(real counts by `provider_key` with `pct`), `queue`
+(`queued/processing/retrying/dead`), and `latency`
+(`p50_ms/p95_ms/samples` from `delivery_attempts.duration_ms` in range,
+`null` when no samples). Base counters unchanged.
 
 ### GET /providers (public)
 
@@ -239,7 +241,7 @@ Tenant-scoped. Missing → `404` envelope (`errors.code: NOT_FOUND`).
 
 ## 12. Auth, Tenants, Health (dashboard, JWT)
 
-`POST /api/v1/auth/register` (`200 rc:2001`), `POST /api/v1/auth/login` (`10/min` per IP), `GET /api/v1/auth/me` (returns `user:{id,email,name}` + `tenants`). `GET/POST /api/v1/tenants`, `GET /api/v1/tenants/:id`, `GET/POST /api/v1/tenants/:id/members`. `GET /health`, `GET /ready`, `POST /internal/m00-ping` tidak pakai envelope.
+`POST /api/v1/auth/register` (`200 rc:2001`), `POST /api/v1/auth/login` (`10/min` per IP), `GET /api/v1/auth/me` (returns `user:{id,email,name}` + `tenants`). `GET/POST /api/v1/tenants`, `GET /api/v1/tenants/:id`, `GET/POST /api/v1/tenants/:id/members`. `GET /health`, `GET /ready`, `POST /internal/m00-ping` tidak pakai envelope. `GET /ready` adds `perf` (`worker_concurrency/db_pool_max/redis_mode single|cluster/retention_enabled/retention_days`, no secrets).
 
 ## 13. Pagination
 

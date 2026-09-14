@@ -8,6 +8,7 @@ export function dbPool(config: AppConfig): Pool {
     pool = new Pool({
       connectionString: config.DATABASE_URL,
       connectionTimeoutMillis: 5_000,
+      max: config.DB_POOL_MAX,
     });
   }
   return pool;

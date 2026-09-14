@@ -200,7 +200,15 @@ export async function buildApp(config: AppConfig = loadConfig()): Promise<Fastif
     try { await checkRedis(config); checks.redis = "ok"; } catch (err) { ok = false; checks.redis = err instanceof Error ? err.message : "unavailable"; }
     checks.queue = checks.redis === "ok" ? "ok" : "blocked: redis unavailable";
     if (!ok) checks.queue = "blocked: redis unavailable";
-    return reply.status(ok ? 200 : 503).send({ status: ok ? "ok" : "degraded", checks });
+    // M12 perf visibility (additive, no secrets): effective throughput knobs.
+    const perf = {
+      worker_concurrency: config.WORKER_CONCURRENCY,
+      db_pool_max: config.DB_POOL_MAX,
+      redis_mode: config.REDIS_CLUSTER_URLS.trim() ? "cluster" : "single",
+      retention_enabled: config.RETENTION_ENABLED,
+      retention_days: config.RETENTION_DAYS,
+    };
+    return reply.status(ok ? 200 : 503).send({ status: ok ? "ok" : "degraded", checks, perf });
   });
   app.post("/internal/m00-ping", async (req, reply) => {
     try {

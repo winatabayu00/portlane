@@ -1,19 +1,19 @@
 import { Queue, Worker } from "bullmq";
-import { Redis } from "ioredis";
 import crypto from "node:crypto";
 import type { AppConfig } from "../../config.js";
 import { dbPool } from "../../db.js";
 import { id } from "../../lib/ids.js";
 import { readCapped, validateOutboundUrl } from "../../lib/ssrf.js";
 import { decrypt } from "../../lib/crypto.js";
+import { makeRedisConnection } from "../../lib/redis-connection.js";
 
 export const FORWARD_QUEUE = "portlane-webhook-forwards";
 export type ForwardJob = { eventId: string };
 
 let forwardQueue: Queue<ForwardJob> | null = null;
 
-function conn(config: AppConfig): Redis {
-  return new Redis(config.REDIS_URL, { maxRetriesPerRequest: null });
+function conn(config: AppConfig) {
+  return makeRedisConnection(config);
 }
 
 export async function enqueueForward(config: AppConfig, eventId: string): Promise<void> {
@@ -56,7 +56,7 @@ export function registerForwardWorker(config: AppConfig): Worker<ForwardJob> {
         return { eventId, failed: true };
       }
     },
-    { connection: new Redis(config.REDIS_URL, { maxRetriesPerRequest: null }), concurrency: 5 },
+    { connection: makeRedisConnection(config), concurrency: config.WORKER_CONCURRENCY },
   );
   worker.on("failed", (job, err) => {
     console.error(JSON.stringify({ level: "error", msg: "forward worker job failed", jobId: job?.id, err: err.message }));

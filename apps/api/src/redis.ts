@@ -1,15 +1,11 @@
-import { Redis } from "ioredis";
 import type { AppConfig } from "./config.js";
+import { makeRedisConnection, type RedisConnection } from "./lib/redis-connection.js";
 
-let redis: Redis | null = null;
+let redis: RedisConnection | null = null;
 
-export function redisClient(config: AppConfig): Redis {
+export function redisClient(config: AppConfig): RedisConnection {
   if (!redis) {
-    redis = new Redis(config.REDIS_URL, {
-      maxRetriesPerRequest: 2,
-      connectTimeout: 5_000,
-      lazyConnect: false,
-    });
+    redis = makeRedisConnection(config, { maxRetriesPerRequest: 2, connectTimeout: 5_000 });
   }
   return redis;
 }

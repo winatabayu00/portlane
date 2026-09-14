@@ -1,6 +1,6 @@
 import { Queue, Worker, type Job } from "bullmq";
-import { Redis } from "ioredis";
 import type { AppConfig } from "./config.js";
+import { makeRedisConnection } from "./lib/redis-connection.js";
 
 export const M00_QUEUE_NAME = "portlane-m00";
 
@@ -8,8 +8,8 @@ export type M00PingJob = { kind: "m00-ping"; enqueuedAt: string };
 
 let queue: Queue<M00PingJob> | null = null;
 
-function connection(config: AppConfig): Redis {
-  return new Redis(config.REDIS_URL, { maxRetriesPerRequest: null });
+function connection(config: AppConfig) {
+  return makeRedisConnection(config);
 }
 
 // Infrastructure-only proof job: API -> queue -> worker. No provider logic (M00 §10).

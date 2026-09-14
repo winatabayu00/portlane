@@ -1,4 +1,4 @@
-import type { Redis } from "ioredis";
+import type { RedisConnection } from "./redis-connection.js";
 
 const buckets = new Map<string, { count: number; resetAt: number }>();
 
@@ -17,7 +17,7 @@ function checkMemory(key: string, limit: number, windowMs: number): boolean {
 // Redis fixed-window via INCR+PEXPIRE (shared across instances); falls back to
 // in-memory map when Redis is unavailable (fail-open, same as before).
 // ponytail: fixed window, not sliding; upgrade to Lua sliding window when abuse observed.
-export async function checkRateLimit(key: string, limit: number, windowMs: number, redis?: Redis | null): Promise<boolean> {
+export async function checkRateLimit(key: string, limit: number, windowMs: number, redis?: RedisConnection | null): Promise<boolean> {
   if (redis) {
     try {
       const redisKey = `rl:${key}`;

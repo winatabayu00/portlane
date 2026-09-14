@@ -13,14 +13,14 @@ export async function observabilityRoutes(app: FastifyInstance, config: AppConfi
     const { tenantId } = req.params as any;
     if (!await requireTenantMember(pool, user.userId, tenantId, reply, req)) return;
     // Range-aware operational summary. Existing top-level counters are kept
-    // verbatim for backward compatibility (§41); `activity`, `provider_mix`
-    // and `queue` are additive.
+    // verbatim for backward compatibility (§41); `activity`, `provider_mix`,
+    // `queue` and `latency` are additive (M12 perf observability).
     const range = (req.query as Record<string, string>).range === "24h" ? "24h"
       : (req.query as Record<string, string>).range === "30d" ? "30d" : "7d";
     const trunc = range === "24h" ? "hour" : "day";
     const interval = range === "24h" ? "1 day" : range === "30d" ? "30 days" : "7 days";
     const buckets = range === "24h" ? 24 : range === "30d" ? 30 : 7;
-    const [msgToday, delivered, failed, queued, providers, webhooks, recentFailures, queueRows, activityRows, mixRows] = await Promise.all([
+    const [msgToday, delivered, failed, queued, providers, webhooks, recentFailures, queueRows, activityRows, mixRows, latencyRows] = await Promise.all([
       pool.query("SELECT COUNT(*) FROM messages WHERE tenant_id=$1 AND created_at > NOW() - INTERVAL '1 day'", [tenantId]),
       pool.query("SELECT COUNT(*) FROM deliveries WHERE tenant_id=$1 AND status='DELIVERED'", [tenantId]),
       pool.query("SELECT COUNT(*) FROM deliveries WHERE tenant_id=$1 AND status IN ('FAILED','DEAD')", [tenantId]),
@@ -43,9 +43,16 @@ export async function observabilityRoutes(app: FastifyInstance, config: AppConfi
          GROUP BY 1 ORDER BY 1`, [trunc, tenantId, interval]),
       pool.query(
         `SELECT COALESCE(pc.provider_key,'unknown') AS provider_key, COUNT(*)::int AS count
-         FROM deliveries d LEFT JOIN provider_connections pc ON pc.id=d.provider_connection_id
-         WHERE d.tenant_id=$1 AND d.created_at > NOW() - $2::interval
-         GROUP BY 1 ORDER BY 2 DESC`, [tenantId, interval]),
+          FROM deliveries d LEFT JOIN provider_connections pc ON pc.id=d.provider_connection_id
+          WHERE d.tenant_id=$1 AND d.created_at > NOW() - $2::interval
+          GROUP BY 1 ORDER BY 2 DESC`, [tenantId, interval]),
+      pool.query(
+        `SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY duration_ms)::int AS p50_ms,
+            percentile_cont(0.95) WITHIN GROUP (ORDER BY duration_ms)::int AS p95_ms,
+            COUNT(*)::int AS samples
+          FROM delivery_attempts
+          WHERE tenant_id=$1 AND created_at > NOW() - $2::interval AND duration_ms IS NOT NULL`,
+        [tenantId, interval]),
     ]);
     // Fill missing buckets with zeros so charts never mislead (§39).
     // Buckets are generated in UTC to match date_trunc boundaries.
@@ -65,6 +72,12 @@ export async function observabilityRoutes(app: FastifyInstance, config: AppConfi
     const provider_mix = mixRows.rows.map((r: { provider_key: string; count: number }) => ({
       provider_key: r.provider_key, count: r.count, pct: Math.round((r.count / mixTotal) * 1000) / 10,
     }));
+    const lat = latencyRows.rows[0] ?? { p50_ms: null, p95_ms: null, samples: 0 };
+    const latency = {
+      p50_ms: lat.samples > 0 ? lat.p50_ms : null,
+      p95_ms: lat.samples > 0 ? lat.p95_ms : null,
+      samples: lat.samples ?? 0,
+    };
     return reply.send(success({
         messages_today: parseInt(msgToday.rows[0].count, 10),
         delivered: parseInt(delivered.rows[0].count, 10),
@@ -76,6 +89,7 @@ export async function observabilityRoutes(app: FastifyInstance, config: AppConfi
         queue: queueRows.rows[0],
         activity,
         provider_mix,
+        latency,
       }, String(req.id)));
   });
 

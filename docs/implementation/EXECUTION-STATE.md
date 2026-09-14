@@ -1,8 +1,8 @@
 # Portlane Execution State
 
-Current milestone: M11 (COMPLETE — E2E 13/13 PASS, V1 released)
-Overall status: COMPLETE
-Repo class: IMPLEMENTED M00-M11 (clean tree)
+Current milestone: M12 (IN PROGRESS — V1.1 Performance Scale, slices 1-4 implemented, uncommitted)
+Overall status: V1 COMPLETE (M00-M11, E2E 13/13 PASS, v1.0.0); M12 in progress
+Repo class: IMPLEMENTED M00-M11 + M12 slices (dirty tree, pending commit)
 
 M00: PASS — app boots, DB/Redis health checks, queue baseline, FE/BE single port, lint/typecheck/test PASS
 M01: PASS — users, auth (register/login/JWT), tenants, memberships, tenant isolation enforced
@@ -35,3 +35,9 @@ Last update: 2026-09-13 — M11 No1-No13 verified (E2E 13/13 PASS); V1 tagged v1
 Infra: no Docker, mini-server Postgres/Redis via DATABASE_URL/REDIS_URL, trustProxy false default
 
 M10 verification: typecheck PASS, lint PASS, tests 9/9 PASS, build PASS (api + web)
+
+M12 (2026-09-14, uncommitted): throughput config (WORKER_CONCURRENCY/DB_POOL_MAX),
+central Redis factory + optional cluster (REDIS_CLUSTER_URLS), worker concurrency
+wiring, opt-in retention purge (RETENTION_ENABLED=false default, 007 indexes),
+overview latency p50/p95 + /ready perf. Verify: typecheck PASS, lint PASS,
+tests 9/9 files PASS (55 passed, 1 skipped). E2E live 13/13 NOT re-run on this tree.

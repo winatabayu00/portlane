@@ -20,6 +20,11 @@ const testConfig: AppConfig = {
   COOKIE_SECURE: false,
   JWT_SECRET: "test-jwt-secret",
   JWT_EXPIRES_IN: "7d",
+  WORKER_CONCURRENCY: 5,
+  DB_POOL_MAX: 10,
+  REDIS_CLUSTER_URLS: "",
+  RETENTION_ENABLED: false,
+  RETENTION_DAYS: 90,
 };
 
 describe("app foundation", () => {

@@ -1,8 +1,8 @@
 import { Worker, type Job } from "bullmq";
-import { Redis } from "ioredis";
 import type { AppConfig } from "../../config.js";
 import { dbPool } from "../../db.js";
 import { id } from "../../lib/ids.js";
+import { makeRedisConnection } from "../../lib/redis-connection.js";
 import { redactCredentials } from "../../lib/mask.js";
 import { decryptCreds } from "../providers/core/crypto.js";
 import { getProvider } from "../providers/core/registry.js";
@@ -145,7 +145,7 @@ export function registerDeliveryWorker(config: AppConfig): Worker<DeliveryJob> {
       }
       return { deliveryId, result };
     },
-    { connection: new Redis(config.REDIS_URL, { maxRetriesPerRequest: null }), concurrency: 5 },
+    { connection: makeRedisConnection(config), concurrency: config.WORKER_CONCURRENCY },
   );
 
   worker.on("failed", (job, err) => {
