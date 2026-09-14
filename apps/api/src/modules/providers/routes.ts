@@ -3,6 +3,7 @@ import { z } from "zod";
 import { dbPool } from "../../db.js";
 import { id } from "../../lib/ids.js";
 import { requireJwtUser, requireTenantMember } from "../auth/routes.js";
+import { resolveApiKey, hasScope, isExpired } from "../api-keys/routes.js";
 import { encryptCreds, decryptCreds } from "./core/crypto.js";
 import { getProvider, listProviders } from "./core/registry.js";
 import { ProviderError } from "./core/types.js";
@@ -152,6 +153,36 @@ app.post("/api/v1/tenants/:tenantId/provider-connections", async (req, reply) =>
       return reply.status(422).send(errorBody("VALIDATION_ERROR", msg, String(req.id)));
     return reply.status(502).send(errorBody("PROVIDER_ERROR", msg, String(req.id)));
   }
+
+  app.post("/api/v1/telegram/set-webhook", async (req, reply) => {
+    const bearer = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+    const key = await resolveApiKey(pool, bearer);
+    if (!key || key.status !== 'active' || isExpired(key)) return reply.status(401).send(errorBody("UNAUTHORIZED", "Invalid API key.", String(req.id)));
+    if (!hasScope(key, "telegram:webhook:write")) return reply.status(403).send(errorBody("FORBIDDEN", "API key scope not allowed: telegram:webhook:write required.", String(req.id)));
+    const body = z.object({ connectionId: z.string().min(1), endpointId: z.string().min(1), secret: z.string().regex(/^[A-Za-z0-9_-]{1,256}$/).optional() }).parse(req.body);
+    const loaded = await loadTelegramConn(key.tenant_id, body.connectionId);
+    if (loaded.error === "NOT_FOUND") return reply.status(404).send(errorBody("NOT_FOUND", "Provider connection not found.", String(req.id)));
+    if (loaded.error === "NOT_TELEGRAM") return reply.status(422).send(errorBody("VALIDATION_ERROR", "Connection is not a Telegram connection.", String(req.id)));
+    if (loaded.error === "BAD_CREDS") return reply.status(422).send(errorBody("VALIDATION_ERROR", "Connection credentials unreadable.", String(req.id)));
+    const endpoint = (await pool.query("SELECT * FROM webhook_endpoints WHERE id=$1 AND tenant_id=$2", [body.endpointId, key.tenant_id])).rows[0];
+    if (!endpoint) return reply.status(404).send(errorBody("NOT_FOUND", "Webhook endpoint not found.", String(req.id)));
+    let hookUrl: string;
+    try { hookUrl = publicHookUrl(config, endpoint.public_identifier); } catch (e: unknown) { return reply.status(422).send(errorBody("VALIDATION_ERROR", String((e as Error).message), String(req.id))); }
+    const encryptionKey = config.APP_ENCRYPTION_KEY || config.JWT_SECRET;
+    let secretToken: string | undefined;
+    if (body.secret) {
+      secretToken = body.secret;
+      await pool.query("UPDATE webhook_endpoints SET secret_hash=$1, encrypted_secret=$2, updated_at=NOW() WHERE id=$3 AND tenant_id=$4", [hashSecret(body.secret), encrypt(body.secret, encryptionKey), endpoint.id, key.tenant_id]);
+    } else if (endpoint.encrypted_secret) {
+      try { secretToken = decrypt(endpoint.encrypted_secret, encryptionKey); } catch { secretToken = undefined; }
+    }
+    try {
+      const result = await setTelegramWebhook(loaded.token, hookUrl, secretToken);
+      await pool.query(`INSERT INTO telegram_webhook_links (id,tenant_id,provider_connection_id,webhook_endpoint_id,telegram_url,last_set_at,updated_at) VALUES ($1,$2,$3,$4,$5,NOW(),NOW()) ON CONFLICT (provider_connection_id,webhook_endpoint_id) DO UPDATE SET telegram_url=EXCLUDED.telegram_url, last_set_at=NOW(), updated_at=NOW()`, [id("tgl"), key.tenant_id, loaded.conn.id, endpoint.id, hookUrl]);
+      await pool.query("UPDATE api_keys SET last_used_at=NOW() WHERE id=$1", [key.id]);
+      return reply.send(success({ result, url: hookUrl }, String(req.id)));
+    } catch (e: unknown) { return reply.status(502).send(errorBody("PROVIDER_ERROR", String((e as Error).message), String(req.id))); }
+  });
 
   app.post("/api/v1/tenants/:tenantId/telegram/set-webhook", async (req, reply) => {
     const user = await requireJwtUser(req, reply, config); if (!user) return;

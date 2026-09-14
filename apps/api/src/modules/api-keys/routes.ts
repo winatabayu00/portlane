@@ -17,7 +17,7 @@ function generateApiKey(): { full: string; prefix: string; secret: string } {
 }
 
 const ALLOWED_PROVIDERS = ["telegram","discord","smtp","webhook"] as const;
-const ALLOWED_SCOPES = ["messages:write","messages:read","deliveries:read","deliveries:retry"] as const;
+const ALLOWED_SCOPES = ["messages:write","messages:read","deliveries:read","deliveries:retry","telegram:webhook:write"] as const;
 
 function parseExpires(v: string | null | undefined){
   if(v==null || v==="") return null;
