@@ -5,10 +5,14 @@ import { id } from "../../lib/ids.js";
 import { requireJwtUser, requireTenantMember } from "../auth/routes.js";
 import { encryptCreds, decryptCreds } from "./core/crypto.js";
 import { getProvider, listProviders } from "./core/registry.js";
+import { ProviderError } from "./core/types.js";
+import { deleteTelegramWebhook, getTelegramWebhookInfo, setTelegramWebhook } from "./telegram/index.js";
 import { checkRateLimit } from "../../lib/rateLimit.js";
 import { redisClient } from "../../redis.js";
+import { hashSecret, encrypt, decrypt } from "../../lib/crypto.js";
 import { registerAllProviders } from "./index.js";
 import type { AppConfig } from "../../config.js";
+import { publicHookUrl } from "../../config.js";
 import { errorBody } from "../../errors.js";
 import { success } from "../../common/api-response.js";
 import { ResponseCode } from "../../common/response-code.enum.js";
@@ -122,5 +126,113 @@ app.post("/api/v1/tenants/:tenantId/provider-connections", async (req, reply) =>
     const result = await adapter.testConnection(creds as any, cfg);
     await pool.query("UPDATE provider_connections SET last_tested_at=NOW(), last_test_result=$1 WHERE id=$2", [JSON.stringify(result), connId]);
     return reply.send(success(result, String(req.id)));
+  });
+
+  // Telegram inbound wiring (1 bot = 1 connection boleh punya N endpoint,
+  // 1 endpoint = 1 public URL; semuanya boleh forward ke satu global
+  // webhook downstream yang sama — routing per project tetap di downstream).
+  async function loadTelegramConn(tenantId: string, connectionId: string) {
+    const conn = (await pool.query("SELECT * FROM provider_connections WHERE id=$1 AND tenant_id=$2", [connectionId, tenantId])).rows[0];
+    if (!conn) return { error: "NOT_FOUND" as const };
+    if (conn.provider_key !== "telegram") return { error: "NOT_TELEGRAM" as const };
+    let creds: Record<string, unknown>;
+    try {
+      creds = decryptCreds(conn.encrypted_credentials, config.APP_ENCRYPTION_KEY || config.JWT_SECRET);
+    } catch {
+      return { error: "BAD_CREDS" as const };
+    }
+    const token = String((creds as any).botToken ?? "");
+    if (!token) return { error: "BAD_CREDS" as const };
+    return { conn, token };
+  }
+
+  function telegramRouteError(reply: any, req: any, e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (e instanceof ProviderError && e.code === "INVALID_CREDENTIALS")
+      return reply.status(422).send(errorBody("VALIDATION_ERROR", msg, String(req.id)));
+    return reply.status(502).send(errorBody("PROVIDER_ERROR", msg, String(req.id)));
+  }
+
+  app.post("/api/v1/tenants/:tenantId/telegram/set-webhook", async (req, reply) => {
+    const user = await requireJwtUser(req, reply, config); if (!user) return;
+    if (!(await checkRateLimit(`telegram:webhook:${user.userId}`, 10, 60_000, redisClient(config)))) return reply.status(429).send(errorBody("RATE_LIMITED", "Too many requests.", String(req.id)));
+    const { tenantId } = req.params as any;
+    if (!await requireTenantMember(pool, user.userId, tenantId, reply, req)) return;
+    const body = z.object({
+      connectionId: z.string().min(1),
+      endpointId: z.string().min(1),
+      secret: z.string().regex(/^[A-Za-z0-9_-]{1,256}$/, "secret must be 1-256 chars [A-Za-z0-9_-]").optional(),
+    }).parse(req.body);
+    const loaded = await loadTelegramConn(tenantId, body.connectionId);
+    if (loaded.error === "NOT_FOUND") return reply.status(404).send(errorBody("NOT_FOUND", "Provider connection not found.", String(req.id)));
+    if (loaded.error === "NOT_TELEGRAM") return reply.status(422).send(errorBody("VALIDATION_ERROR", "Connection is not a Telegram connection.", String(req.id)));
+    if (loaded.error === "BAD_CREDS") return reply.status(422).send(errorBody("VALIDATION_ERROR", "Connection credentials unreadable.", String(req.id)));
+    const endpoint = (await pool.query("SELECT * FROM webhook_endpoints WHERE id=$1 AND tenant_id=$2", [body.endpointId, tenantId])).rows[0];
+    if (!endpoint) return reply.status(404).send(errorBody("NOT_FOUND", "Webhook endpoint not found.", String(req.id)));
+    let hookUrl: string;
+    try {
+      hookUrl = publicHookUrl(config, endpoint.public_identifier);
+    } catch (e: unknown) {
+      return reply.status(422).send(errorBody("VALIDATION_ERROR", String((e as Error).message), String(req.id)));
+    }
+    // Secret: eksplisit menang (disimpan di endpoint untuk verifikasi inbound);
+    // bila kosong, reuse secret endpoint yang sudah ada agar setup lama tetap jalan.
+    const key = config.APP_ENCRYPTION_KEY || config.JWT_SECRET;
+    let secretToken: string | undefined;
+    if (body.secret) {
+      secretToken = body.secret;
+      await pool.query("UPDATE webhook_endpoints SET secret_hash=$1, encrypted_secret=$2, updated_at=NOW() WHERE id=$3 AND tenant_id=$4", [hashSecret(body.secret), encrypt(body.secret, key), endpoint.id, tenantId]);
+    } else if (endpoint.encrypted_secret) {
+      try {
+        secretToken = decrypt(endpoint.encrypted_secret, key);
+      } catch {
+        secretToken = undefined;
+      }
+    }
+    try {
+      const result = await setTelegramWebhook(loaded.token, hookUrl, secretToken);
+      await pool.query("INSERT INTO audit_logs (id,tenant_id,actor_type,actor_id,action,target_type,target_id) VALUES ($1,$2,$3,$4,$5,$6,$7)", [id("aud"), tenantId, "user", user.userId, "telegram.webhook_set", "webhook_endpoint", endpoint.id]);
+      return reply.send(success({ ok: true, url: hookUrl, result }, String(req.id)));
+    } catch (e: unknown) {
+      return telegramRouteError(reply, req, e);
+    }
+  });
+
+  app.get("/api/v1/tenants/:tenantId/telegram/webhook-info", async (req, reply) => {
+    const user = await requireJwtUser(req, reply, config); if (!user) return;
+    if (!(await checkRateLimit(`telegram:webhook:${user.userId}`, 10, 60_000, redisClient(config)))) return reply.status(429).send(errorBody("RATE_LIMITED", "Too many requests.", String(req.id)));
+    const { tenantId } = req.params as any;
+    if (!await requireTenantMember(pool, user.userId, tenantId, reply, req)) return;
+    const { connectionId } = req.query as Record<string, string>;
+    if (!connectionId) return reply.status(422).send(errorBody("VALIDATION_ERROR", "connectionId query required.", String(req.id)));
+    const loaded = await loadTelegramConn(tenantId, connectionId);
+    if (loaded.error === "NOT_FOUND") return reply.status(404).send(errorBody("NOT_FOUND", "Provider connection not found.", String(req.id)));
+    if (loaded.error === "NOT_TELEGRAM") return reply.status(422).send(errorBody("VALIDATION_ERROR", "Connection is not a Telegram connection.", String(req.id)));
+    if (loaded.error === "BAD_CREDS") return reply.status(422).send(errorBody("VALIDATION_ERROR", "Connection credentials unreadable.", String(req.id)));
+    try {
+      const info = await getTelegramWebhookInfo(loaded.token);
+      return reply.send(success(info ?? null, String(req.id)));
+    } catch (e: unknown) {
+      return telegramRouteError(reply, req, e);
+    }
+  });
+
+  app.post("/api/v1/tenants/:tenantId/telegram/delete-webhook", async (req, reply) => {
+    const user = await requireJwtUser(req, reply, config); if (!user) return;
+    if (!(await checkRateLimit(`telegram:webhook:${user.userId}`, 10, 60_000, redisClient(config)))) return reply.status(429).send(errorBody("RATE_LIMITED", "Too many requests.", String(req.id)));
+    const { tenantId } = req.params as any;
+    if (!await requireTenantMember(pool, user.userId, tenantId, reply, req)) return;
+    const body = z.object({ connectionId: z.string().min(1), drop_pending_updates: z.boolean().optional() }).parse(req.body);
+    const loaded = await loadTelegramConn(tenantId, body.connectionId);
+    if (loaded.error === "NOT_FOUND") return reply.status(404).send(errorBody("NOT_FOUND", "Provider connection not found.", String(req.id)));
+    if (loaded.error === "NOT_TELEGRAM") return reply.status(422).send(errorBody("VALIDATION_ERROR", "Connection is not a Telegram connection.", String(req.id)));
+    if (loaded.error === "BAD_CREDS") return reply.status(422).send(errorBody("VALIDATION_ERROR", "Connection credentials unreadable.", String(req.id)));
+    try {
+      const result = await deleteTelegramWebhook(loaded.token, body.drop_pending_updates ?? false);
+      await pool.query("INSERT INTO audit_logs (id,tenant_id,actor_type,actor_id,action,target_type,target_id) VALUES ($1,$2,$3,$4,$5,$6,$7)", [id("aud"), tenantId, "user", user.userId, "telegram.webhook_deleted", "provider_connection", loaded.conn.id]);
+      return reply.send(success({ ok: true, result }, String(req.id)));
+    } catch (e: unknown) {
+      return telegramRouteError(reply, req, e);
+    }
   });
 }

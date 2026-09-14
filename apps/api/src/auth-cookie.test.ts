@@ -29,6 +29,7 @@ function testConfig(): AppConfig {
     REDIS_CLUSTER_URLS: "",
     RETENTION_ENABLED: false,
     RETENTION_DAYS: 90,
+    PORTLANE_PUBLIC_BASE_URL: "",
   };
 }
 

@@ -22,6 +22,10 @@ const configSchema = z.object({
   REDIS_CLUSTER_URLS: z.string().default(""),
   RETENTION_ENABLED: z.string().default("false"),
   RETENTION_DAYS: z.coerce.number().int().min(7).max(3650).default(90),
+  // Public base URL Portlane (mis. https://portlane.example.com) untuk
+  // membangun webhook URL Telegram (/hooks/wh_xxx). Kosong = fitur
+  // set-webhook nonaktif (422 yang jelas, bukan URL rusak).
+  PORTLANE_PUBLIC_BASE_URL: z.string().default(""),
 });
 
 export type AppConfig = Omit<z.infer<typeof configSchema>, "COOKIE_SECURE" | "RETENTION_ENABLED"> & { COOKIE_SECURE: boolean; RETENTION_ENABLED: boolean };
@@ -64,7 +68,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   else throw new Error("COOKIE_SECURE must be true/false (or empty for auto: Secure in production)");
   const rawRet = cfg.RETENTION_ENABLED.trim().toLowerCase();
   if (!["", "true", "false", "1", "0"].includes(rawRet)) throw new Error("RETENTION_ENABLED must be true/false");
-  const out: AppConfig = { ...cfg, COOKIE_SECURE: cookieSecure, RETENTION_ENABLED: rawRet === "true" || rawRet === "1" };
+  const publicBase = normalizePublicBaseUrl(cfg.PORTLANE_PUBLIC_BASE_URL);
+  const out: AppConfig = { ...cfg, COOKIE_SECURE: cookieSecure, RETENTION_ENABLED: rawRet === "true" || rawRet === "1", PORTLANE_PUBLIC_BASE_URL: publicBase };
   if (out.DATABASE_URL.includes("/ai_engineering_os")) {
     throw new Error("DATABASE_URL must not point to ai_engineering_os — use isolated DB 'portlane' (e.g. .../portlane)");
   }
@@ -77,6 +82,29 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       throw new Error("JWT_SECRET must differ from APP_ENCRYPTION_KEY in production");
   }
   return out;
+}
+
+// Validasi + normalisasi public base URL: harus http(s), tanpa trailing slash.
+// Return "" bila kosong (fitur set-webhook nonaktif sampai dikonfigurasi).
+export function normalizePublicBaseUrl(raw: string): string {
+  const trimmed = raw.trim().replace(/\/+$/, "");
+  if (!trimmed) return "";
+  let u: URL;
+  try {
+    u = new URL(trimmed);
+  } catch {
+    throw new Error("PORTLANE_PUBLIC_BASE_URL must be a valid http(s) URL");
+  }
+  if (!["http:", "https:"].includes(u.protocol)) throw new Error("PORTLANE_PUBLIC_BASE_URL must be http(s)");
+  return u.toString().replace(/\/+$/, "");
+}
+
+// Bangun URL inbound publik untuk satu webhook endpoint.
+// Multi-bot didukung: satu URL per endpoint (public_identifier unik),
+// semuanya boleh forward ke satu global webhook downstream yang sama.
+export function publicHookUrl(config: AppConfig, publicIdentifier: string): string {
+  if (!config.PORTLANE_PUBLIC_BASE_URL) throw new Error("PORTLANE_PUBLIC_BASE_URL is not configured — set the public http(s) base URL to register Telegram webhooks");
+  return `${config.PORTLANE_PUBLIC_BASE_URL}/hooks/${publicIdentifier}`;
 }
 
 export function trustedProxyList(config: AppConfig): string[] | false {

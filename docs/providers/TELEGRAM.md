@@ -5,9 +5,18 @@ Related: [documentation index](../../README.md)
 ## V1 Capabilities
 
 - SEND_MESSAGE
-- RECEIVE_WEBHOOK (diklaim di capabilities; tanpa integrasi inbound provider-side — gap)
+- RECEIVE_WEBHOOK via Telegram `setWebhook` to Portlane inbound URL
 - basic formatting (`parse_mode` passthrough apa pun, tanpa whitelist)
 - test live `getMe`
+
+## Inbound Wiring
+
+- Requires `PORTLANE_PUBLIC_BASE_URL` (tanpa trailing slash). Kosong = `POST .../telegram/set-webhook` return `422`, bukan URL rusak.
+- Satu bot (provider connection) boleh punya N webhook endpoint; satu endpoint = satu URL publik `POST /hooks/:publicIdentifier` (`/api/v1/hooks/:publicIdentifier` legacy alias).
+- Semua endpoint boleh forward ke satu global webhook downstream yang sama — routing per project tetap di downstream, Portlane teruskan raw update apa adanya.
+- Secret: `secret` eksplisit di `set-webhook` disimpan di endpoint untuk verifikasi inbound (`x-telegram-bot-api-secret-token` atau legacy `x-webhook-secret`); bila kosong, reuse secret endpoint yang sudah ada.
+- Endpoints: `POST /tenants/:tenantId/telegram/set-webhook` (`connectionId, endpointId, secret?`, `10/min`), `GET /tenants/:tenantId/telegram/webhook-info?connectionId=`, `POST /tenants/:tenantId/telegram/delete-webhook` (`connectionId, drop_pending_updates?`).
+- Error mapping: `401/403` Telegram → `422 VALIDATION_ERROR`; gagal lain → `502 PROVIDER_ERROR`. Pesan error hanya method + description Telegram, tanpa token.
 
 ## Connection Config
 

@@ -18,6 +18,20 @@ import { hashSecret, encrypt, decrypt, verifyHmacSha256, timingSafeEqual } from 
 
 function genPublicId(): string { return "wh_" + crypto.randomBytes(12).toString("hex"); }
 
+// Verifikasi secret plaintext inbound (timing-safe via hash compare).
+// Menerima transport legacy `x-webhook-secret` maupun Telegram
+// `x-telegram-bot-api-secret-token` — keduanya dibandingkan ke secret
+// endpoint yang sama, jadi 1 URL publik tetap multi-project: Portlane
+// teruskan raw update apa adanya, routing per project di downstream.
+// Cabang hmac_sha256 tidak tersentuh (ditangani terpisah di handleHook).
+export function verifyPlaintextWebhookSecret(secretHash: string | null, headers: Record<string, unknown>): boolean {
+  if (!secretHash) return false;
+  const raw = headers["x-webhook-secret"] ?? headers["x-telegram-bot-api-secret-token"] ?? "";
+  const provided = Array.isArray(raw) ? String(raw[0] ?? "") : String(raw ?? "");
+  if (!provided) return false;
+  return timingSafeEqual(hashSecret(provided), secretHash);
+}
+
 export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
   const pool = dbPool(config);
 
@@ -198,8 +212,7 @@ export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
       try { secret = decrypt(endpoint.encrypted_secret, config.APP_ENCRYPTION_KEY || config.JWT_SECRET); } catch { secret = endpoint.encrypted_secret; }
       if (!verifyHmacSha256(bodyRaw, sig, secret)) return reply.status(401).send(errorBody("UNAUTHORIZED","Invalid signature.",String(req.id)));
     } else if (endpoint.secret_hash) {
-      const provided = (req.headers["x-webhook-secret"] ?? "") as string;
-      if (!provided || !timingSafeEqual(hashSecret(provided), endpoint.secret_hash)) return reply.status(401).send(errorBody("UNAUTHORIZED","Invalid secret.",String(req.id)));
+      if (!verifyPlaintextWebhookSecret(endpoint.secret_hash, req.headers as Record<string, unknown>)) return reply.status(401).send(errorBody("UNAUTHORIZED","Invalid secret.",String(req.id)));
     }
 
     const safeHeaders = redactHeaders(req.headers as Record<string,string>);

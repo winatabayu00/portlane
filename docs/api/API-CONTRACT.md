@@ -133,6 +133,18 @@ Dibatasi `RESTRICT` bila dipakai deliveries → `409` bila ada histori.
 
 Secrets must be write-only in normal responses. Discord test offline (hostname check), Telegram live `getMe`.
 
+### POST /tenants/:tenantId/telegram/set-webhook (10/min)
+
+Body `{connectionId, endpointId, secret?}` (`secret` regex `[A-Za-z0-9_-]{1,256}`). Registers Telegram `setWebhook` to `{PORTLANE_PUBLIC_BASE_URL}/hooks/:publicIdentifier`. `secret` eksplisit disimpan di endpoint; kosong reuse secret lama. Requires `PORTLANE_PUBLIC_BASE_URL` else `422`. Errors: `404` connection/endpoint, `422` non-Telegram/unreadable creds, Telegram `401/403` → `422`, lain → `502`.
+
+### GET /tenants/:tenantId/telegram/webhook-info?connectionId= (10/min)
+
+Proxies Telegram `getWebhookInfo`. Same `404/422/502` mapping.
+
+### POST /tenants/:tenantId/telegram/delete-webhook (10/min)
+
+Body `{connectionId, drop_pending_updates?}`. Proxies Telegram `deleteWebhook`. Same mapping.
+
 ## 6. Destinations
 
 Semua tenant-scoped: `/tenants/:tenantId/destinations...`.
