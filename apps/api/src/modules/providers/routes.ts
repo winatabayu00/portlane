@@ -9,6 +9,7 @@ import { getProvider, listProviders } from "./core/registry.js";
 import { ProviderError } from "./core/types.js";
 import { deleteTelegramWebhook, getTelegramWebhookInfo, setTelegramWebhook } from "./telegram/index.js";
 import { checkRateLimit } from "../../lib/rateLimit.js";
+import { isIpAllowed } from "../../lib/ip.js";
 import { redisClient } from "../../redis.js";
 import { hashSecret, encrypt, decrypt } from "../../lib/crypto.js";
 import { registerAllProviders } from "./index.js";
@@ -20,6 +21,12 @@ import { ResponseCode } from "../../common/response-code.enum.js";
 
 // register once (single source; worker.ts uses the same entry)
 registerAllProviders();
+
+function parseAllowedProviders(v: unknown): string[] {
+  if (!v) return [];
+  if (Array.isArray(v)) return v.map(String);
+  try { const p = typeof v === "string" ? JSON.parse(v) : v; return Array.isArray(p) ? p.map(String) : []; } catch { return []; }
+}
 
 export async function providerRoutes(app: FastifyInstance, config: AppConfig) {
   const pool = dbPool(config);
@@ -159,6 +166,24 @@ app.post("/api/v1/tenants/:tenantId/provider-connections", async (req, reply) =>
     const key = await resolveApiKey(pool, bearer);
     if (!key || key.status !== 'active' || isExpired(key)) return reply.status(401).send(errorBody("UNAUTHORIZED", "Invalid API key.", String(req.id)));
     if (!hasScope(key, "telegram:webhook:write")) return reply.status(403).send(errorBody("FORBIDDEN", "API key scope not allowed: telegram:webhook:write required.", String(req.id)));
+    // §17 machine-API gates (must mirror POST /messages): IP allowlist → rate limit → tenant ownership.
+    const allowEntries = await pool.query("SELECT cidr FROM ip_allowlist_entries WHERE scope_type='API_KEY' AND scope_id=$1 AND enabled=true", [key.id]);
+    const allowCidrs = allowEntries.rows.map((r: any) => r.cidr);
+    if (allowCidrs.length > 0) {
+      const ip = (req as any).ip ?? "127.0.0.1";
+      if (!isIpAllowed(ip, allowCidrs)) {
+        await pool.query("INSERT INTO audit_logs (id,tenant_id,actor_type,actor_id,action,target_type,target_id,metadata_json) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)", [id("aud"), key.tenant_id, "system", key.id, "api_key.blocked_ip", "api_key", key.id, JSON.stringify({ ip })]);
+        return reply.status(403).send(errorBody("IP_NOT_ALLOWED", "Request source is not allowed for this API key.", String(req.id)));
+      }
+    }
+    if (!(await checkRateLimit(`ak:${key.id}:telegram-webhook`, 10, 60_000, redisClient(config)))) return reply.status(429).send(errorBody("RATE_LIMITED", "Too many requests.", String(req.id)));
+    // Mirror POST /messages provider gate (§14): a key restricted to other
+    // providers must not configure Telegram webhooks. allowed_destination_ids
+    // is N/A here — this action targets a provider connection + webhook
+    // endpoint (not a destination); authorization is the tenant-scoped
+    // ownership checks below.
+    const allowedProviders = parseAllowedProviders((key as any).allowed_providers);
+    if (allowedProviders.length > 0 && !allowedProviders.includes("telegram")) return reply.status(403).send(errorBody("FORBIDDEN", "Provider not allowed for this API key: telegram", String(req.id)));
     const body = z.object({ connectionId: z.string().min(1), endpointId: z.string().min(1), secret: z.string().regex(/^[A-Za-z0-9_-]{1,256}$/).optional() }).parse(req.body);
     const loaded = await loadTelegramConn(key.tenant_id, body.connectionId);
     if (loaded.error === "NOT_FOUND") return reply.status(404).send(errorBody("NOT_FOUND", "Provider connection not found.", String(req.id)));
@@ -179,6 +204,7 @@ app.post("/api/v1/tenants/:tenantId/provider-connections", async (req, reply) =>
     try {
       const result = await setTelegramWebhook(loaded.token, hookUrl, secretToken);
       await pool.query(`INSERT INTO telegram_webhook_links (id,tenant_id,provider_connection_id,webhook_endpoint_id,telegram_url,last_set_at,updated_at) VALUES ($1,$2,$3,$4,$5,NOW(),NOW()) ON CONFLICT (provider_connection_id,webhook_endpoint_id) DO UPDATE SET telegram_url=EXCLUDED.telegram_url, last_set_at=NOW(), updated_at=NOW()`, [id("tgl"), key.tenant_id, loaded.conn.id, endpoint.id, hookUrl]);
+      await pool.query("INSERT INTO audit_logs (id,tenant_id,actor_type,actor_id,action,target_type,target_id) VALUES ($1,$2,$3,$4,$5,$6,$7)", [id("aud"), key.tenant_id, "api_key", key.id, "telegram.webhook_set", "webhook_endpoint", endpoint.id]);
       await pool.query("UPDATE api_keys SET last_used_at=NOW() WHERE id=$1", [key.id]);
       return reply.send(success({ result, url: hookUrl }, String(req.id)));
     } catch (e: unknown) { return reply.status(502).send(errorBody("PROVIDER_ERROR", String((e as Error).message), String(req.id))); }

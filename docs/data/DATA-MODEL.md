@@ -45,7 +45,7 @@ Unique:
 - created_at
 - revoked_at
 - expires_at nullable (ISO8601, enforced 401 when expired)
-- scopes jsonb default `[]` — empty = unrestricted; allowed: `messages:write`, `messages:read`, `deliveries:read`, `deliveries:retry`
+- scopes jsonb default `[]` — empty = legacy scopes only (`messages:write`, `messages:read`, `deliveries:read`, `deliveries:retry`); post-M11 scopes (e.g. `telegram:webhook:write`) require explicit grant
 - allowed_providers jsonb default `[]` — empty = all; subset of `telegram|discord|smtp|webhook`
 - allowed_destination_ids jsonb default `[]` — empty = all; validated tenant-scoped destination IDs
 

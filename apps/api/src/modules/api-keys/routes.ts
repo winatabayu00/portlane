@@ -18,6 +18,10 @@ function generateApiKey(): { full: string; prefix: string; secret: string } {
 
 const ALLOWED_PROVIDERS = ["telegram","discord","smtp","webhook"] as const;
 const ALLOWED_SCOPES = ["messages:write","messages:read","deliveries:read","deliveries:retry","telegram:webhook:write"] as const;
+// Pre-scope capabilities (existed before M11 introduced scopes). Empty-scopes
+// keys are grandfathered ONLY for these (§79 backward-compat); newer scopes
+// are deny-by-default (§80).
+const LEGACY_SCOPES = ["messages:write","messages:read","deliveries:read","deliveries:retry"] as const;
 
 function parseExpires(v: string | null | undefined){
   if(v==null || v==="") return null;
@@ -173,7 +177,12 @@ export async function apiKeyRoutes(app: FastifyInstance, config: AppConfig) {
 
 export function hasScope(ak:any, scope:string):boolean{
   const scopes: string[] = Array.isArray(ak.scopes) ? ak.scopes : (typeof ak.scopes==="string" ? JSON.parse(ak.scopes) : ak.scopes ?? []);
-  if(!scopes || scopes.length===0) return true;
+  // §79/§80: empty scopes grandfather ONLY pre-scope (legacy) capabilities.
+  // Keys created before M11 have scopes=[] and must keep working on the
+  // original endpoints. Capabilities introduced after scoping (e.g.
+  // telegram:webhook:write) are deny-by-default and require an explicit
+  // grant — otherwise every legacy key would silently gain new privileges.
+  if(!scopes || scopes.length===0) return (LEGACY_SCOPES as readonly string[]).includes(scope);
   return scopes.includes(scope);
 }
 export function isExpired(ak:any):boolean{

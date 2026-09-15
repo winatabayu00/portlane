@@ -10,7 +10,7 @@ Base path:
 
 ## 1. Authentication
 
-Machine API (only `POST /messages`):
+Machine API (`POST /messages`, `POST /api/v1/telegram/set-webhook`):
 
 ```http
 Authorization: Bearer pl_live_<prefix>.<secret>
@@ -137,6 +137,10 @@ Secrets must be write-only in normal responses. Discord test offline (hostname c
 
 Body `{connectionId, endpointId, secret?}` (`secret` regex `[A-Za-z0-9_-]{1,256}`). Registers Telegram `setWebhook` to `{PORTLANE_PUBLIC_BASE_URL}/hooks/:publicIdentifier`. `secret` eksplisit disimpan di endpoint; kosong reuse secret lama. Requires `PORTLANE_PUBLIC_BASE_URL` else `422`. Errors: `404` connection/endpoint, `422` non-Telegram/unreadable creds, Telegram `401/403` → `422`, lain → `502`.
 
+### POST /api/v1/telegram/set-webhook (machine, 10/min)
+
+Same body as the tenant JWT variant, but authenticated with `Authorization: Bearer pl_live_...` (tenant derived from the key). Requires scope `telegram:webhook:write` — scope-less (pre-M11) keys are DENIED; grant the scope explicitly via `PATCH /tenants/:tenantId/api-keys/:id`. Enforces §17 machine gates: API-key IP allowlist (`403 IP_NOT_ALLOWED` + `api_key.blocked_ip` audit), `10/min` per-key rate limit (`429`), `allowed_providers` must be empty or include `telegram` (`403` otherwise; `allowed_destination_ids` N/A — this action targets a connection + endpoint, not a destination), then tenant-scoped connection/endpoint ownership. Success persists `telegram_webhook_links`, writes `telegram.webhook_set` audit (`actor_type api_key`), and updates `last_used_at`.
+
 ### GET /tenants/:tenantId/telegram/webhook-links (?connectionId=)
 
 Lists persisted bot↔endpoint wiring (`telegram_webhook_links`): connection/endpoint names, `telegram_url`, `last_set_at`. Tenant-scoped JWT.
@@ -165,7 +169,7 @@ Semua tenant-scoped: `/tenants/:tenantId/api-keys...`.
 
 ### GET /tenants/:tenantId/api-keys
 
-Returns `id, tenant_id, name, key_prefix, status, last_used_at, created_at, revoked_at, expires_at, scopes, allowed_destination_ids, allowed_providers`. `scopes/allowed_*` empty = unrestricted. Fallback maps legacy rows to `null/[]` when migration `003` not yet applied.
+Returns `id, tenant_id, name, key_prefix, status, last_used_at, created_at, revoked_at, expires_at, scopes, allowed_destination_ids, allowed_providers`. `allowed_*` empty = unrestricted. `scopes` empty = grandfathered legacy scopes only (`messages:write|messages:read|deliveries:read|deliveries:retry`); scopes introduced after M11 (e.g. `telegram:webhook:write`) require an explicit grant. Fallback maps legacy rows to `null/[]` when migration `003` not yet applied.
 
 ### POST /tenants/:tenantId/api-keys
 
@@ -179,7 +183,7 @@ Returns `id, tenant_id, name, key_prefix, status, last_used_at, created_at, revo
 }
 ```
 
-`expires_at` must be future ISO8601 or `null`. `scopes` allowed: `messages:write|messages:read|deliveries:read|deliveries:retry`. `allowed_providers` subset of `telegram|discord|smtp|webhook`. `allowed_destination_ids` validated tenant-scoped. Response `201 rc:2001` includes row + `key: pl_live_<prefix>.<secret>` + `prefix`. Full secret shown only once.
+`expires_at` must be future ISO8601 or `null`. `scopes` allowed: `messages:write|messages:read|deliveries:read|deliveries:retry|telegram:webhook:write`. `allowed_providers` subset of `telegram|discord|smtp|webhook`. `allowed_destination_ids` validated tenant-scoped. Response `201 rc:2001` includes row + `key: pl_live_<prefix>.<secret>` + `prefix`. Full secret shown only once.
 
 ### PATCH /tenants/:tenantId/api-keys/:id
 
@@ -193,12 +197,12 @@ Marks `revoked`. Subsequent machine auth `401`.
 
 Hard delete. Requires `revoked` first else `422 Revoke key before delete.` Cascades `ip_allowlist_entries` for that key scope. `204` on success.
 
-Machine auth enforcement (only `POST /messages` checks scope/allowlist/IP/rate; JWT routes reject `pl_live_` with `401`):
+Machine auth enforcement (`POST /messages` and `POST /api/v1/telegram/set-webhook` check scope/allowlist/IP/rate; JWT routes reject `pl_live_` with `401`):
 
 - `401 API key expired.` when `expires_at <= now`
-- `403 API key scope not allowed: messages:write required.` when `scopes` non-empty and lacking required scope
-- `403 Destination not allowed for this API key: …` when `allowed_destination_ids` non-empty and request contains outside set
-- `403 Provider not allowed for this API key: …` when `allowed_providers` non-empty and destination provider outside set
+- `403 API key scope not allowed: … required.` when the key lacks the required scope. Empty `scopes` = legacy scopes only (`messages:write|messages:read|deliveries:read|deliveries:retry`); post-M11 scopes such as `telegram:webhook:write` need an explicit grant
+- `403 Destination not allowed for this API key: …` when `allowed_destination_ids` non-empty and request contains outside set (`POST /messages` only; N/A to webhook-setup which targets a connection + endpoint, not a destination)
+- `403 Provider not allowed for this API key: …` when `allowed_providers` non-empty and the target provider is outside the set (`telegram` for set-webhook, destination providers for `POST /messages`)
 
 ## 8. API Key IP Allowlist
 

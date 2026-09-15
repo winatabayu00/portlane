@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { normalizePublicBaseUrl, publicHookUrl, loadConfig } from "./config.js";
 import { verifyPlaintextWebhookSecret } from "./modules/webhooks/routes.js";
 import { setTelegramWebhook, getTelegramWebhookInfo, deleteTelegramWebhook } from "./modules/providers/telegram/index.js";
+import { hasScope } from "./modules/api-keys/routes.js";
 import { hashSecret } from "./lib/crypto.js";
 import { ProviderError } from "./modules/providers/core/types.js";
 
@@ -86,6 +87,25 @@ describe("telegram webhook bot api", () => {
   });
 });
 
+describe("api key scopes (§79 backward-compat, §80 deny-by-default for new scopes)", () => {
+  it("scope-less legacy keys keep legacy capabilities", () => {
+    for (const s of ["messages:write", "messages:read", "deliveries:read", "deliveries:retry"]) {
+      expect(hasScope({ scopes: [] }, s)).toBe(true);
+      expect(hasScope({ scopes: "[]" }, s)).toBe(true);
+    }
+  });
+  it("scope-less legacy keys are DENIED telegram:webhook:write", () => {
+    expect(hasScope({ scopes: [] }, "telegram:webhook:write")).toBe(false);
+    expect(hasScope({ scopes: "[]" }, "telegram:webhook:write")).toBe(false);
+    expect(hasScope({}, "telegram:webhook:write")).toBe(false);
+  });
+  it("explicit grants still work", () => {
+    expect(hasScope({ scopes: ["telegram:webhook:write"] }, "telegram:webhook:write")).toBe(true);
+    expect(hasScope({ scopes: ["messages:write"] }, "telegram:webhook:write")).toBe(false);
+    expect(hasScope({ scopes: ["messages:write"] }, "messages:write")).toBe(true);
+  });
+});
+
 describe("telegram webhook linkage (§39 observable wiring)", () => {
   const dir = dirname(fileURLToPath(import.meta.url));
   it("migration persists bot↔endpoint links", () => {
@@ -99,6 +119,21 @@ describe("telegram webhook linkage (§39 observable wiring)", () => {
     expect(src).toMatch(/telegram_webhook_links/);
     expect(src).toMatch(/webhook-links/);
     expect(src).toMatch(/DELETE FROM telegram_webhook_links/);
+  });
+  it("machine set-webhook enforces §17 gates (IP allowlist + rate limit + audit)", () => {
+    const src = readFileSync(join(dir, "modules", "providers", "routes.ts"), "utf8");
+    const machine = src.slice(src.indexOf('"/api/v1/telegram/set-webhook"'));
+    expect(machine).toMatch(/isIpAllowed/);
+    expect(machine).toMatch(/IP_NOT_ALLOWED/);
+    expect(machine).toMatch(/api_key\.blocked_ip/);
+    expect(machine).toMatch(/ak:\$\{key\.id\}:telegram-webhook/);
+    expect(machine).toMatch(/telegram\.webhook_set/);
+  });
+  it("machine set-webhook enforces allowed_providers=telegram (§14 mirror)", () => {
+    const src = readFileSync(join(dir, "modules", "providers", "routes.ts"), "utf8");
+    const machine = src.slice(src.indexOf('"/api/v1/telegram/set-webhook"'));
+    expect(machine).toMatch(/allowedProviders/);
+    expect(machine).toMatch(/Provider not allowed for this API key/);
   });
   it("webhooks page wires bot pick + set/check/delete + links list", () => {
     const webDir = join(dir, "..", "..", "web", "src", "pages", "Webhooks.tsx");

@@ -1,8 +1,8 @@
 # Portlane Execution State
 
-Current milestone: M12 (IN PROGRESS — V1.1 Performance Scale, slices 1-4 implemented, uncommitted)
-Overall status: V1 COMPLETE (M00-M11, E2E 13/13 PASS, v1.0.0); M12 in progress
-Repo class: IMPLEMENTED M00-M11 + M12 slices (dirty tree, pending commit)
+Current milestone: M12 COMPLETE (V1.1 Performance Scale committed); Telegram inbound wiring landed; machine set-webhook §17 hardening pending (uncommitted)
+Overall status: V1 COMPLETE (M00-M11, E2E 13/13 PASS, v1.0.0); M12 committed f8fb6bb; telegram inbound e4e1adb..df2013c
+Repo class: IMPLEMENTED M00-M12 + telegram inbound (dirty tree: §17 hardening for machine set-webhook, pending commit)
 
 M00: PASS — app boots, DB/Redis health checks, queue baseline, FE/BE single port, lint/typecheck/test PASS
 M01: PASS — users, auth (register/login/JWT), tenants, memberships, tenant isolation enforced
@@ -36,8 +36,29 @@ Infra: no Docker, mini-server Postgres/Redis via DATABASE_URL/REDIS_URL, trustPr
 
 M10 verification: typecheck PASS, lint PASS, tests 9/9 PASS, build PASS (api + web)
 
-M12 (2026-09-14, uncommitted): throughput config (WORKER_CONCURRENCY/DB_POOL_MAX),
+M12 (2026-09-14, committed f8fb6bb): throughput config (WORKER_CONCURRENCY/DB_POOL_MAX),
 central Redis factory + optional cluster (REDIS_CLUSTER_URLS), worker concurrency
 wiring, opt-in retention purge (RETENTION_ENABLED=false default, 007 indexes),
-overview latency p50/p95 + /ready perf. Verify: typecheck PASS, lint PASS,
+overview latency p50/p95 + /ready perf. Verify at commit: typecheck PASS, lint PASS,
 tests 9/9 files PASS (55 passed, 1 skipped). E2E live 13/13 NOT re-run on this tree.
+
+Telegram inbound (2026-09-14, committed e4e1adb..df2013c): base-url config,
+inbound wiring + webhook-links persistence (008), Webhooks UI (secret/drawer/
+test-forward, Telegram tab), machine POST /api/v1/telegram/set-webhook
+(scope telegram:webhook:write).
+Pending (uncommitted 2026-09-15): machine set-webhook §17 hardening — per-key
+IP allowlist (403 IP_NOT_ALLOWED + api_key.blocked_ip audit), 10/min per-key
+rate limit, telegram.webhook_set audit (actor api_key). telegram-webhook.test.ts
+16/16 PASS; typecheck/lint PASS. Full suite: 74 passed, 2 pre-existing
+infra failures (live DB cookie test, live Redis rate-limit test — fail
+identically on clean HEAD, Tailscale infra unreachable locally).
+Gap close-out (2026-09-15, uncommitted): hasScope() grandfathering — empty
+scopes keep legacy scopes only (messages:write/read, deliveries:read/retry,
+§79), post-M11 scopes like telegram:webhook:write deny-by-default (§80,
+explicit PATCH grant required); machine set-webhook enforces
+allowed_providers=telegram mirror of POST /messages (§14,
+allowed_destination_ids confirmed N/A — action targets connection+endpoint,
+tenant ownership enforced). Docs updated (API-CONTRACT, DATA-MODEL,
+TELEGRAM). telegram-webhook.test.ts 20/20 PASS; typecheck/lint PASS. Full
+suite: 78 passed, same 2 pre-existing infra failures (verified identical on
+clean HEAD via stash).
