@@ -60,7 +60,11 @@ describe("telegram webhook bot api", () => {
     vi.stubGlobal("fetch", fetchMock);
     await setTelegramWebhook(token, "https://portlane.example.com/hooks/wh_abc", "s3cr3t");
     const [, opts] = fetchMock.mock.calls[0] as any[];
-    expect(JSON.parse(opts.body)).toMatchObject({ url: "https://portlane.example.com/hooks/wh_abc", secret_token: "s3cr3t" });
+    expect(JSON.parse(opts.body)).toMatchObject({
+      url: "https://portlane.example.com/hooks/wh_abc",
+      secret_token: "s3cr3t",
+      allowed_updates: ["message", "callback_query"],
+    });
   });
   it("getWebhookInfo + deleteWebhook pass through result", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ ok: true, result: { url: "u" } }), { status: 200 })));

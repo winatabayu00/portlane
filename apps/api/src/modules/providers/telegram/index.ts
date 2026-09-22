@@ -30,7 +30,11 @@ async function callTelegramBotApi(token: string, method: string, body?: Record<s
 }
 
 export async function setTelegramWebhook(token: string, url: string, secretToken?: string): Promise<unknown> {
-  const body: Record<string, unknown> = { url, drop_pending_updates: false };
+  const body: Record<string, unknown> = {
+    url,
+    drop_pending_updates: false,
+    allowed_updates: ['message', 'callback_query'],
+  };
   if (secretToken) body.secret_token = secretToken;
   return callTelegramBotApi(token, "setWebhook", body);
 }
