@@ -1,5 +1,6 @@
 import { Worker, type Job } from "bullmq";
 import type { AppConfig } from "../../config.js";
+import { credentialEncryptionKey } from "../../config.js";
 import { dbPool } from "../../db.js";
 import { id } from "../../lib/ids.js";
 import { makeRedisConnection } from "../../lib/redis-connection.js";
@@ -70,7 +71,7 @@ export function registerDeliveryWorker(config: AppConfig): Worker<DeliveryJob> {
         const adapter = getProvider(conn.provider_key);
         if (!adapter) throw new ProviderError("NOT_FOUND", `Unknown provider ${conn.provider_key}`, false);
 
-        const creds = decryptCreds(conn.encrypted_credentials, config.APP_ENCRYPTION_KEY || config.JWT_SECRET);
+        const creds = decryptCreds(conn.encrypted_credentials, credentialEncryptionKey(config));
         const input = {
           message: { subject: msg.subject ?? undefined, body: msg.body, metadata: msg.metadata_json ?? undefined },
           destination: { config: destR.rows[0].config_json },

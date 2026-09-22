@@ -14,7 +14,7 @@ import { redisClient } from "../../redis.js";
 import { hashSecret, encrypt, decrypt } from "../../lib/crypto.js";
 import { registerAllProviders } from "./index.js";
 import type { AppConfig } from "../../config.js";
-import { publicHookUrl } from "../../config.js";
+import { credentialEncryptionKey, publicHookUrl } from "../../config.js";
 import { errorBody } from "../../errors.js";
 import { success } from "../../common/api-response.js";
 import { ResponseCode } from "../../common/response-code.enum.js";
@@ -59,7 +59,7 @@ app.post("/api/v1/tenants/:tenantId/provider-connections", async (req, reply) =>
     try { adapter.validateConnectionConfig(body.config as any, body.credentials as any); } catch(e:any){ return reply.status(422).send(errorBody("VALIDATION_ERROR", e.message, String(req.id))); }
     // Provider-owned network policy (§6/§36): no per-provider branching here.
     try { await adapter.verifyConnectionNetwork?.(body.config as any, body.credentials as any); } catch(e: unknown){ return reply.status(422).send(errorBody("VALIDATION_ERROR", `Network policy: ${String((e as Error).message)}`, String(req.id))); }
-    const enc = encryptCreds(body.credentials as any, config.APP_ENCRYPTION_KEY || config.JWT_SECRET);
+    const enc = encryptCreds(body.credentials as any, credentialEncryptionKey(config));
     const connId = id("conn");
     await pool.query("INSERT INTO provider_connections (id,tenant_id,provider_key,name,encrypted_credentials,config_json) VALUES ($1,$2,$3,$4,$5,$6)", [connId, tenantId, body.provider_key, body.name, enc, JSON.stringify(body.config)]);
     await pool.query("INSERT INTO audit_logs (id,tenant_id,actor_type,actor_id,action,target_type,target_id) VALUES ($1,$2,$3,$4,$5,$6,$7)", [id("aud"), tenantId,"user",user.userId,"provider_connection.created","provider_connection",connId]);
@@ -93,7 +93,7 @@ app.post("/api/v1/tenants/:tenantId/provider-connections", async (req, reply) =>
     const updates: string[]=[]; const vals:any[]=[]; let idx=1;
     if(body.name){ updates.push(`name=$${idx++}`); vals.push(body.name); }
     if(body.config){ updates.push(`config_json=$${idx++}`); vals.push(JSON.stringify(body.config)); }
-    if(body.credentials){ const enc=encryptCreds(body.credentials as any, config.APP_ENCRYPTION_KEY || config.JWT_SECRET); updates.push(`encrypted_credentials=$${idx++}`); vals.push(enc); }
+    if(body.credentials){ const enc=encryptCreds(body.credentials as any, credentialEncryptionKey(config)); updates.push(`encrypted_credentials=$${idx++}`); vals.push(enc); }
     if(body.status){ updates.push(`status=$${idx++}`); vals.push(body.status); }
     if(!updates.length) return reply.status(422).send(errorBody("VALIDATION_ERROR","No fields",String(req.id)));
     updates.push(`updated_at=NOW()`);
@@ -129,7 +129,7 @@ app.post("/api/v1/tenants/:tenantId/provider-connections", async (req, reply) =>
     const row=cur.rows[0];
     const adapter=getProvider(row.provider_key);
     if(!adapter) return reply.status(422).send(errorBody("VALIDATION_ERROR","Unknown provider",String(req.id)));
-    const creds=decryptCreds(row.encrypted_credentials, config.APP_ENCRYPTION_KEY || config.JWT_SECRET);
+    const creds=decryptCreds(row.encrypted_credentials, credentialEncryptionKey(config));
     const cfg = row.config_json as any;
     const result = await adapter.testConnection(creds as any, cfg);
     await pool.query("UPDATE provider_connections SET last_tested_at=NOW(), last_test_result=$1 WHERE id=$2", [JSON.stringify(result), connId]);
@@ -145,7 +145,7 @@ app.post("/api/v1/tenants/:tenantId/provider-connections", async (req, reply) =>
     if (conn.provider_key !== "telegram") return { error: "NOT_TELEGRAM" as const };
     let creds: Record<string, unknown>;
     try {
-      creds = decryptCreds(conn.encrypted_credentials, config.APP_ENCRYPTION_KEY || config.JWT_SECRET);
+      creds = decryptCreds(conn.encrypted_credentials, credentialEncryptionKey(config));
     } catch {
       return { error: "BAD_CREDS" as const };
     }
@@ -193,7 +193,7 @@ app.post("/api/v1/tenants/:tenantId/provider-connections", async (req, reply) =>
     if (!endpoint) return reply.status(404).send(errorBody("NOT_FOUND", "Webhook endpoint not found.", String(req.id)));
     let hookUrl: string;
     try { hookUrl = publicHookUrl(config, endpoint.public_identifier); } catch (e: unknown) { return reply.status(422).send(errorBody("VALIDATION_ERROR", String((e as Error).message), String(req.id))); }
-    const encryptionKey = config.APP_ENCRYPTION_KEY || config.JWT_SECRET;
+    const encryptionKey = credentialEncryptionKey(config);
     let secretToken: string | undefined;
     if (body.secret) {
       secretToken = body.secret;
@@ -234,7 +234,7 @@ app.post("/api/v1/tenants/:tenantId/provider-connections", async (req, reply) =>
     }
     // Secret: eksplisit menang (disimpan di endpoint untuk verifikasi inbound);
     // bila kosong, reuse secret endpoint yang sudah ada agar setup lama tetap jalan.
-    const key = config.APP_ENCRYPTION_KEY || config.JWT_SECRET;
+    const key = credentialEncryptionKey(config);
     let secretToken: string | undefined;
     if (body.secret) {
       secretToken = body.secret;

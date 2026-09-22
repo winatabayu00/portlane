@@ -10,6 +10,7 @@ export type ErrorCode =
   | "CONFLICT"
   | "IP_NOT_ALLOWED"
   | "RATE_LIMITED"
+  | "PAYLOAD_TOO_LARGE"
   | "PROVIDER_ERROR"
   | "INVALID_CREDENTIALS"
   | "UNPROCESSABLE";
@@ -31,6 +32,8 @@ function codeToRc(code: string): ResponseCode {
       return ResponseCode.FORBIDDEN;
     case "RATE_LIMITED":
       return ResponseCode.RATE_LIMITED;
+    case "PAYLOAD_TOO_LARGE":
+      return ResponseCode.PAYLOAD_TOO_LARGE;
     case "INFRA_UNAVAILABLE":
       return ResponseCode.SERVICE_UNAVAILABLE;
     case "PROVIDER_ERROR":
@@ -57,6 +60,8 @@ function codeToStatus(code: string): number {
       return 403;
     case "RATE_LIMITED":
       return 429;
+    case "PAYLOAD_TOO_LARGE":
+      return 413;
     case "INFRA_UNAVAILABLE":
       return 503;
     case "PROVIDER_ERROR":

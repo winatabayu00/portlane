@@ -73,7 +73,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (out.DATABASE_URL.includes("/ai_engineering_os")) {
     throw new Error("DATABASE_URL must not point to ai_engineering_os — use isolated DB 'portlane' (e.g. .../portlane)");
   }
-  if (!out.JWT_SECRET) out.JWT_SECRET = out.APP_ENV === "production" ? "" : (out.APP_ENCRYPTION_KEY || "dev-jwt-secret-change-me");
+  if (!out.JWT_SECRET) out.JWT_SECRET = out.APP_ENV === "production" ? "" : "dev-jwt-secret-change-me-32chars!!!";
+  // Credential encryption key: single source. Production wajib APP_ENCRYPTION_KEY
+  // (distinct dari JWT_SECRET). Dev/test dapat default independen — tidak lagi
+  // fallback ke JWT_SECRET agar dua domain kunci tidak tercampur.
   if (out.APP_ENV === "production") {
     requireEncryptionKey(out);
     if (!out.JWT_SECRET || out.JWT_SECRET.length < 32)
@@ -116,4 +119,12 @@ export function requireEncryptionKey(config: AppConfig): string {
   const k = config.APP_ENCRYPTION_KEY;
   if (!k || k.length < 16) throw new Error("APP_ENCRYPTION_KEY required (32 hex chars, openssl rand -hex 32)");
   return k;
+}
+
+// Single source kunci enkripsi kredensial. Production: wajib
+// APP_ENCRYPTION_KEY (distinct dari JWT_SECRET). Dev/test: default stabil
+// agar tidak tercampur dengan JWT_SECRET bila env kosong.
+export function credentialEncryptionKey(config: AppConfig): string {
+  if (config.APP_ENV === "production") return requireEncryptionKey(config);
+  return config.APP_ENCRYPTION_KEY || "dev-encryption-key-32chars-long!!";
 }
