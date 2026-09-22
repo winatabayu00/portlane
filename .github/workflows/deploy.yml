@@ -28,6 +28,13 @@ jobs:
           cd "$DEPLOY_PATH"
           git fetch origin main
           git reset --hard origin/main
+          # reset --hard tidak menghapus untracked: file .ts sisa eksperimen
+          # lokal pernah bikin typecheck gagal di server padahal CI hijau
+          # (fresh checkout). Bersihkan untracked non-ignored agar workspace
+          # deploy selalu mencerminkan origin/main. Tanpa -x agar ignored
+          # (.env, node_modules/, dist/) tetap aman.
+          git clean -fd
+          echo "--- tracked status ---"; git status --short
           git log --oneline -1
 
       - name: Install

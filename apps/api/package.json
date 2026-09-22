@@ -12,6 +12,7 @@
     "test": "vitest run",
     "migrate": "node scripts/migrate.js",
     "e2e": "tsx scripts/e2e.ts",
+    "sync:telegram-webhooks": "tsx scripts/sync-telegram-webhooks.ts",
     "start": "node dist/index.js",
     "start:worker": "node dist/worker.js"
   },

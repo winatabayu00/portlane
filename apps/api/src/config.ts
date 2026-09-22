@@ -26,9 +26,12 @@ const configSchema = z.object({
   // membangun webhook URL Telegram (/hooks/wh_xxx). Kosong = fitur
   // set-webhook nonaktif (422 yang jelas, bukan URL rusak).
   PORTLANE_PUBLIC_BASE_URL: z.string().default(""),
+  // Autosync Telegram setWebhook saat boot/deploy (default on). "true"/"1"/""
+  // = aktif, "false"/"0" = nonaktif. Perlu PORTLANE_PUBLIC_BASE_URL.
+  TELEGRAM_WEBHOOK_AUTOSYNC: z.string().default("true"),
 });
 
-export type AppConfig = Omit<z.infer<typeof configSchema>, "COOKIE_SECURE" | "RETENTION_ENABLED"> & { COOKIE_SECURE: boolean; RETENTION_ENABLED: boolean };
+export type AppConfig = Omit<z.infer<typeof configSchema>, "COOKIE_SECURE" | "RETENTION_ENABLED" | "TELEGRAM_WEBHOOK_AUTOSYNC"> & { COOKIE_SECURE: boolean; RETENTION_ENABLED: boolean; TELEGRAM_WEBHOOK_AUTOSYNC: boolean };
 
 function buildDatabaseUrlFromDbVars(env: NodeJS.ProcessEnv): string | undefined {
   const host = (env.DB_HOST as string) || "";
@@ -68,8 +71,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   else throw new Error("COOKIE_SECURE must be true/false (or empty for auto: Secure in production)");
   const rawRet = cfg.RETENTION_ENABLED.trim().toLowerCase();
   if (!["", "true", "false", "1", "0"].includes(rawRet)) throw new Error("RETENTION_ENABLED must be true/false");
+  const rawSync = cfg.TELEGRAM_WEBHOOK_AUTOSYNC.trim().toLowerCase();
+  if (!["", "true", "false", "1", "0"].includes(rawSync)) throw new Error("TELEGRAM_WEBHOOK_AUTOSYNC must be true/false");
   const publicBase = normalizePublicBaseUrl(cfg.PORTLANE_PUBLIC_BASE_URL);
-  const out: AppConfig = { ...cfg, COOKIE_SECURE: cookieSecure, RETENTION_ENABLED: rawRet === "true" || rawRet === "1", PORTLANE_PUBLIC_BASE_URL: publicBase };
+  const out: AppConfig = { ...cfg, COOKIE_SECURE: cookieSecure, RETENTION_ENABLED: rawRet === "true" || rawRet === "1", TELEGRAM_WEBHOOK_AUTOSYNC: rawSync === "" || rawSync === "true" || rawSync === "1", PORTLANE_PUBLIC_BASE_URL: publicBase };
   if (out.DATABASE_URL.includes("/ai_engineering_os")) {
     throw new Error("DATABASE_URL must not point to ai_engineering_os — use isolated DB 'portlane' (e.g. .../portlane)");
   }

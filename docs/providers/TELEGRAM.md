@@ -20,6 +20,13 @@ Related: [documentation index](../../README.md)
 - Error mapping: `401/403` Telegram → `422 VALIDATION_ERROR`; gagal lain → `502 PROVIDER_ERROR`. Pesan error hanya method + description Telegram, tanpa token.
 - UI (halaman Webhooks → tombol Telegram per endpoint): pilih endpoint + akun Telegram, lihat URL yang sedang terdaftar di sisi Telegram (`getWebhookInfo`), peringatan bila tidak cocok dengan endpoint ini (anti salah alamat), jalur forward endpoint ditampilkan, secret opsional + Generate, lalu Set/Hapus. Setelah set, status dibaca ulang untuk konfirmasi cocok.
 
+## Webhook Autosync
+
+- `TELEGRAM_WEBHOOK_AUTOSYNC` (default `"true"`): `"false"`/`"0"` = nonaktif. Butuh `PORTLANE_PUBLIC_BASE_URL`.
+- Saat API boot (dan via `yarn workspace @portlane/api sync:telegram-webhooks`), Portlane membandingkan `getWebhookInfo` tiap bot vs URL ekspektasi baru dan memanggil `setWebhook` ulang bila mismatch (mis. URL quick tunnel berganti tiap restart).
+- Telegram `last set wins`: satu connection hanya punya 1 URL aktif — bila satu connection punya N link, hanya link terbaru (`last_set_at` DESC) yang di-sync, sisanya tercatat `superseded` (riwayat DB tetap tersimpan).
+- Koneksi/endpoint `disabled` dilewati; kredensial tak terbaca dicatat `failed` tanpa throw. Token & secret tidak pernah di-log; audit memakai actor `system` (`telegram.webhook_autosync`).
+
 ## Connection Config
 
 - bot token

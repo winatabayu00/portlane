@@ -26,6 +26,7 @@ const testConfig: AppConfig = {
   RETENTION_ENABLED: false,
   RETENTION_DAYS: 90,
   PORTLANE_PUBLIC_BASE_URL: "",
+  TELEGRAM_WEBHOOK_AUTOSYNC: true,
 };
 
 describe("app foundation", () => {
