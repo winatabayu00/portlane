@@ -87,6 +87,10 @@ export function isWebhookMismatch(actualUrl: string | null | undefined, expected
   return (actualUrl ?? "") !== expectedUrl;
 }
 
+export function isCallbackUpdateMissing(allowedUpdates: unknown): boolean {
+  return !Array.isArray(allowedUpdates) || !allowedUpdates.includes("callback_query");
+}
+
 const LINKS_QUERY = `
   SELECT l.id AS link_id, l.tenant_id, l.provider_connection_id, l.webhook_endpoint_id,
          l.telegram_url, l.last_set_at,
@@ -179,9 +183,9 @@ export async function syncTelegramWebhooks(config: AppConfig, deps?: SyncDeps): 
       continue;
     }
     try {
-      const info = (await getInfo(token)) as { url?: string } | null;
+      const info = (await getInfo(token)) as { url?: string; allowed_updates?: unknown } | null;
       const actualUrl = info?.url ?? "";
-      if (!isWebhookMismatch(actualUrl, expectedUrl)) {
+      if (!isWebhookMismatch(actualUrl, expectedUrl) && !isCallbackUpdateMissing(info?.allowed_updates)) {
         summary.upToDate += 1;
         if (row.telegram_url !== expectedUrl) {
           await updateLink(row.link_id, row.tenant_id, expectedUrl);

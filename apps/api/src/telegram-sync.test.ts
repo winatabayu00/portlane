@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { loadConfig } from "./config.js";
 import {
   isWebhookMismatch,
+  isCallbackUpdateMissing,
   pickLatestLinkPerConnection,
   syncTelegramWebhooks,
   type TelegramLinkRow,
@@ -64,6 +65,14 @@ describe("isWebhookMismatch", () => {
   });
 });
 
+describe("isCallbackUpdateMissing", () => {
+  it("requires callback_query in the Telegram webhook subscription", () => {
+    expect(isCallbackUpdateMissing(undefined)).toBe(true);
+    expect(isCallbackUpdateMissing(["message"])).toBe(true);
+    expect(isCallbackUpdateMissing(["message", "callback_query"])).toBe(false);
+  });
+});
+
 describe("syncTelegramWebhooks", () => {
   const base = "https://new.trycloudflare.com";
   const expected = `${base}/hooks/wh_abc`;
@@ -103,7 +112,7 @@ describe("syncTelegramWebhooks", () => {
     let setCalls = 0;
     const summary = await syncTelegramWebhooks(cfg(base), {
       query: async () => ({ rows: [row({ telegram_url: expected })] }),
-      getInfo: async () => ({ url: expected }),
+      getInfo: async () => ({ url: expected, allowed_updates: ["message", "callback_query"] }),
       setHook: async () => { setCalls += 1; return true; },
       decryptCredsFn: () => ({ botToken: "T" }),
       updateLink: async () => {},
@@ -111,6 +120,20 @@ describe("syncTelegramWebhooks", () => {
     });
     expect(summary).toMatchObject({ checked: 1, synced: 0, upToDate: 1 });
     expect(setCalls).toBe(0);
+  });
+
+  it("re-registers when the URL is current but callback updates are missing", async () => {
+    let setCalls = 0;
+    const summary = await syncTelegramWebhooks(cfg(base), {
+      query: async () => ({ rows: [row({ telegram_url: expected })] }),
+      getInfo: async () => ({ url: expected, allowed_updates: ["message"] }),
+      setHook: async () => { setCalls += 1; return true; },
+      decryptCredsFn: () => ({ botToken: "T" }),
+      updateLink: async () => {},
+      audit: async () => {},
+    });
+    expect(summary).toMatchObject({ checked: 1, synced: 1, upToDate: 0 });
+    expect(setCalls).toBe(1);
   });
 
   it("boot-style call with only {log} uses real DB path (no null-pool crash)", async () => {
@@ -133,7 +156,7 @@ describe("syncTelegramWebhooks", () => {
       // Bug lama: `pool!` null → "Cannot read properties of null".
       const s = await syncTelegramWebhooks(cfg(base), {
         query: async () => ({ rows: [row()] }),
-        getInfo: async () => ({ url: expected }),
+        getInfo: async () => ({ url: expected, allowed_updates: ["message", "callback_query"] }),
         decryptCredsFn: () => ({ botToken: "T" }),
         log: { info: () => {}, warn: () => {}, error: () => {} },
       });
