@@ -9,8 +9,9 @@ import { redisClient } from "../../redis.js";
 import { isIpAllowed, parseCidrOrThrow } from "../../lib/ip.js";
 import { redactCredentials, redactHeaders } from "../../lib/mask.js";
 import { readCapped, validateOutboundUrl } from "../../lib/ssrf.js";
-import { buildForwardHeaders, enqueueForward } from "./forward.js";
+import { buildForwardHeaders, enqueueForward, forwardWebhookEvent } from "./forward.js";
 import type { AppConfig } from "../../config.js";
+import { credentialEncryptionKey } from "../../config.js";
 import { errorBody } from "../../errors.js";
 import { success } from "../../common/api-response.js";
 import { ResponseCode } from "../../common/response-code.enum.js";
@@ -67,7 +68,7 @@ export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
     const wid = id("whe");
     const pub = genPublicId();
     let secretHash: string | null = null; let encSecret: string | null = null;
-    if (body.secret) { secretHash = hashSecret(body.secret); encSecret = encrypt(body.secret, config.APP_ENCRYPTION_KEY || config.JWT_SECRET); }
+    if (body.secret) { secretHash = hashSecret(body.secret); encSecret = encrypt(body.secret, credentialEncryptionKey(config)); }
     const fwd: Record<string, unknown> = body.forwarding_config ?? {};
     if (body.forwarding_url) {
       try { await validateOutboundUrl(body.forwarding_url); } catch (e: unknown) { return reply.status(422).send(errorBody("VALIDATION_ERROR", `Forwarding URL blocked by SSRF policy: ${String((e as Error).message)}`, String(req.id))); }
@@ -90,7 +91,7 @@ export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
     if (body.name) { updates.push(`name=$${idx++}`); vals.push(body.name); }
     if (body.status) { updates.push(`status=$${idx++}`); vals.push(body.status); }
     if (body.signature_mode) { updates.push(`signature_mode=$${idx++}`); vals.push(body.signature_mode); }
-    if (body.secret) { updates.push(`secret_hash=$${idx++}`); vals.push(hashSecret(body.secret)); updates.push(`encrypted_secret=$${idx++}`); vals.push(encrypt(body.secret, config.APP_ENCRYPTION_KEY || config.JWT_SECRET)); }
+    if (body.secret) { updates.push(`secret_hash=$${idx++}`); vals.push(hashSecret(body.secret)); updates.push(`encrypted_secret=$${idx++}`); vals.push(encrypt(body.secret, credentialEncryptionKey(config))); }
     if (body.forwarding_url !== undefined) {
       const fwd = (cur.rows[0].forwarding_config_json as Record<string, unknown>) ?? {};
       if (body.forwarding_url) {
@@ -126,7 +127,7 @@ export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
     try { await validateOutboundUrl(String(fwd.url)); } catch (e: unknown) { return reply.status(422).send(errorBody("VALIDATION_ERROR", `Forwarding URL blocked by SSRF policy: ${String((e as Error).message)}`, String(req.id))); }
     const bodyRaw = JSON.stringify(body.payload ?? { test: true, endpoint_id: endpointId, sent_at: new Date().toISOString() });
     let secret: string | null = null;
-    if (cur.rows[0].encrypted_secret) { try { secret = decrypt(cur.rows[0].encrypted_secret, config.APP_ENCRYPTION_KEY || config.JWT_SECRET); } catch {} }
+    if (cur.rows[0].encrypted_secret) { try { secret = decrypt(cur.rows[0].encrypted_secret, credentialEncryptionKey(config)); } catch {} }
     const headers = buildForwardHeaders(fwd, { eventId: "test", requestId: String(req.id), bodyRaw, secret, test: true });
     const timeoutMs = Math.min(15000, Math.max(1000, Number((fwd as Record<string, unknown>).timeout_ms ?? 8000)));
     try {
@@ -215,7 +216,7 @@ export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
     try {
       const bodyRaw = JSON.stringify(ev.rows[0].payload_json ?? {});
       let secret: string | null = null;
-      if (endpoint.rows[0].encrypted_secret) { try { secret = decrypt(endpoint.rows[0].encrypted_secret, config.APP_ENCRYPTION_KEY || config.JWT_SECRET); } catch {} }
+      if (endpoint.rows[0].encrypted_secret) { try { secret = decrypt(endpoint.rows[0].encrypted_secret, credentialEncryptionKey(config)); } catch {} }
       const headers = buildForwardHeaders(fwd, { eventId, requestId: String(req.id), bodyRaw, secret });
       const timeoutMs = Math.min(15000, Math.max(1000, Number((fwd as any).timeout_ms ?? 8000)));
       const n = parseInt((await pool.query("SELECT COUNT(*) FROM webhook_forward_attempts WHERE webhook_event_id=$1",[eventId])).rows[0].count,10)+1;
@@ -255,7 +256,7 @@ export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
       const sig = (req.headers["x-webhook-signature"] ?? req.headers["x-signature"] ?? "") as string;
       const bodyRaw = rawBody;
       let secret: string;
-      try { secret = decrypt(endpoint.encrypted_secret, config.APP_ENCRYPTION_KEY || config.JWT_SECRET); } catch { secret = endpoint.encrypted_secret; }
+      try { secret = decrypt(endpoint.encrypted_secret, credentialEncryptionKey(config)); } catch { secret = endpoint.encrypted_secret; }
       if (!verifyHmacSha256(bodyRaw, sig, secret)) return reply.status(401).send(errorBody("UNAUTHORIZED","Invalid signature.",String(req.id)));
     } else if (endpoint.secret_hash) {
       if (!verifyPlaintextWebhookSecret(endpoint.secret_hash, req.headers as Record<string, unknown>)) return reply.status(401).send(errorBody("UNAUTHORIZED","Invalid secret.",String(req.id)));
@@ -269,11 +270,17 @@ export async function webhookRoutes(app: FastifyInstance, config: AppConfig) {
     if (fwd.url) {
       try {
         await validateOutboundUrl(String(fwd.url));
-        try {
-          await enqueueForward(config, eventId);
-        } catch (e: unknown) {
-          // queue down: hook still 200 (event persisted), failure stays visible
-          await pool.query("INSERT INTO webhook_forward_attempts (id,tenant_id,webhook_event_id,attempt_number,status,error_message) VALUES ($1,$2,$3,$4,$5,$6)", [id("wfa"), endpoint.tenant_id, eventId, 1, "FAILED", `enqueue failed: ${String((e as Error).message).slice(0,400)}`]);
+        const isTelegramCallback = !!(req.body as any)?.callback_query || !!(req.body as any)?.callbackQuery;
+        if (isTelegramCallback) {
+          // Telegram keeps the button spinner until the downstream bot acknowledges the callback.
+          await forwardWebhookEvent(config, pool, eventId);
+        } else {
+          try {
+            await enqueueForward(config, eventId);
+          } catch (e: unknown) {
+            // queue down: hook still 200 (event persisted), failure stays visible
+            await pool.query("INSERT INTO webhook_forward_attempts (id,tenant_id,webhook_event_id,attempt_number,status,error_message) VALUES ($1,$2,$3,$4,$5,$6)", [id("wfa"), endpoint.tenant_id, eventId, 1, "FAILED", `enqueue failed: ${String((e as Error).message).slice(0,400)}`]);
+          }
         }
       } catch (e: unknown) {
         await pool.query("INSERT INTO webhook_forward_attempts (id,tenant_id,webhook_event_id,attempt_number,status,error_message) VALUES ($1,$2,$3,$4,$5,$6)", [id("wfa"), endpoint.tenant_id, eventId, 1, "FAILED", String((e as Error).message).slice(0,500)]);

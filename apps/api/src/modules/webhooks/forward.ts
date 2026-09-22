@@ -1,7 +1,9 @@
 import { Queue, Worker } from "bullmq";
 import crypto from "node:crypto";
 import type { AppConfig } from "../../config.js";
+import { credentialEncryptionKey } from "../../config.js";
 import { dbPool } from "../../db.js";
+import type { Pool } from "pg";
 import { id } from "../../lib/ids.js";
 import { readCapped, validateOutboundUrl } from "../../lib/ssrf.js";
 import { decrypt } from "../../lib/crypto.js";
@@ -49,35 +51,38 @@ export async function closeForwardQueue(): Promise<void> {
   if (forwardQueue) { await forwardQueue.close(); forwardQueue = null; }
 }
 
+export async function forwardWebhookEvent(config: AppConfig, pool: Pool, eventId: string) {
+  const ev = (await pool.query("SELECT * FROM webhook_events WHERE id=$1", [eventId])).rows[0];
+  if (!ev) return { skipped: true };
+  const endpoint = (await pool.query("SELECT * FROM webhook_endpoints WHERE id=$1 AND tenant_id=$2", [ev.webhook_endpoint_id, ev.tenant_id])).rows[0];
+  if (!endpoint) return { skipped: true };
+  const fwd = endpoint.forwarding_config_json as Record<string, unknown>;
+  if (!fwd?.url) return { skipped: true };
+  const n = parseInt((await pool.query("SELECT COUNT(*) FROM webhook_forward_attempts WHERE webhook_event_id=$1", [eventId])).rows[0].count, 10) + 1;
+  try {
+    await validateOutboundUrl(String(fwd.url));
+    const bodyRaw = JSON.stringify(ev.payload_json ?? {});
+    let secret: string | null = null;
+    if (endpoint.encrypted_secret) { try { secret = decrypt(endpoint.encrypted_secret, credentialEncryptionKey(config)); } catch {} }
+    const headers = buildForwardHeaders(fwd, { eventId, requestId: ev.request_id ?? "", bodyRaw, secret });
+    const timeoutMs = Math.min(15000, Math.max(1000, Number((fwd as Record<string, unknown>).timeout_ms ?? 8000)));
+    const res = await fetch(String(fwd.url), { method: "POST", headers, body: bodyRaw, signal: AbortSignal.timeout(timeoutMs), redirect: "manual" });
+    if (res.status >= 300 && res.status < 400) { await readCapped(res, 4096).catch(() => ""); throw new Error(`Forward blocked: redirect ${res.status}`); }
+    await readCapped(res, 4096).catch(() => "");
+    await pool.query("INSERT INTO webhook_forward_attempts (id,tenant_id,webhook_event_id,attempt_number,status,response_status) VALUES ($1,$2,$3,$4,$5,$6)", [id("wfa"), ev.tenant_id, eventId, n, res.ok ? "SUCCESS" : "FAILED", res.status]);
+    return { eventId, status: res.status };
+  } catch (e: unknown) {
+    await pool.query("INSERT INTO webhook_forward_attempts (id,tenant_id,webhook_event_id,attempt_number,status,error_message) VALUES ($1,$2,$3,$4,$5,$6)", [id("wfa"), ev.tenant_id, eventId, n, "FAILED", String((e as Error).message).slice(0, 500)]);
+    return { eventId, failed: true };
+  }
+}
+
 export function registerForwardWorker(config: AppConfig): Worker<ForwardJob> {
   const pool = dbPool(config);
   const worker = new Worker<ForwardJob>(
     FORWARD_QUEUE,
     async (job) => {
-      const { eventId } = job.data;
-      const ev = (await pool.query("SELECT * FROM webhook_events WHERE id=$1", [eventId])).rows[0];
-      if (!ev) return { skipped: true };
-      const endpoint = (await pool.query("SELECT * FROM webhook_endpoints WHERE id=$1 AND tenant_id=$2", [ev.webhook_endpoint_id, ev.tenant_id])).rows[0];
-      if (!endpoint) return { skipped: true };
-      const fwd = endpoint.forwarding_config_json as Record<string, unknown>;
-      if (!fwd?.url) return { skipped: true };
-      const n = parseInt((await pool.query("SELECT COUNT(*) FROM webhook_forward_attempts WHERE webhook_event_id=$1", [eventId])).rows[0].count, 10) + 1;
-      try {
-        await validateOutboundUrl(String(fwd.url));
-        const bodyRaw = JSON.stringify(ev.payload_json ?? {});
-        let secret: string | null = null;
-        if (endpoint.encrypted_secret) { try { secret = decrypt(endpoint.encrypted_secret, config.APP_ENCRYPTION_KEY || config.JWT_SECRET); } catch {} }
-        const headers = buildForwardHeaders(fwd, { eventId, requestId: ev.request_id ?? "", bodyRaw, secret });
-        const timeoutMs = Math.min(15000, Math.max(1000, Number((fwd as Record<string, unknown>).timeout_ms ?? 8000)));
-        const res = await fetch(String(fwd.url), { method: "POST", headers, body: bodyRaw, signal: AbortSignal.timeout(timeoutMs), redirect: "manual" });
-        if (res.status >= 300 && res.status < 400) { await readCapped(res, 4096).catch(() => ""); throw new Error(`Forward blocked: redirect ${res.status}`); }
-        await readCapped(res, 4096).catch(() => "");
-        await pool.query("INSERT INTO webhook_forward_attempts (id,tenant_id,webhook_event_id,attempt_number,status,response_status) VALUES ($1,$2,$3,$4,$5,$6)", [id("wfa"), ev.tenant_id, eventId, n, res.ok ? "SUCCESS" : "FAILED", res.status]);
-        return { eventId, status: res.status };
-      } catch (e: unknown) {
-        await pool.query("INSERT INTO webhook_forward_attempts (id,tenant_id,webhook_event_id,attempt_number,status,error_message) VALUES ($1,$2,$3,$4,$5,$6)", [id("wfa"), ev.tenant_id, eventId, n, "FAILED", String((e as Error).message).slice(0, 500)]);
-        return { eventId, failed: true };
-      }
+      return forwardWebhookEvent(config, pool, job.data.eventId);
     },
     { connection: makeRedisConnection(config), concurrency: config.WORKER_CONCURRENCY },
   );
